@@ -24,9 +24,21 @@ export default function App() {
     prevStatus.current = status
   }, [status, reloadFromStorage])
 
-  // ─── Auto-wipe ────────────────────────────────────────────────────────────
+  // ─── NoClear mode ────────────────────────────────────────────────────────
+  const [noClear, setNoClear] = useState(
+    () => localStorage.getItem('clearmind_noclear') === '1'
+  )
+  const toggleNoClear = useCallback(() => {
+    setNoClear(prev => {
+      const next = !prev
+      localStorage.setItem('clearmind_noclear', next ? '1' : '0')
+      return next
+    })
+  }, [])
+
+  // ─── Auto-wipe ───────────────────────────────────────────────────────────
   const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose, isWarning }
-    = useAutoWipe(names.length)
+    = useAutoWipe(noClear ? 0 : names.length)   // pass 0 when NoClear is ON → never triggers
 
   const capturedNames = useRef([])
   const hasBlasted    = useRef(false)    // prevents StrictMode double-run from wiping capturedNames
@@ -147,6 +159,16 @@ export default function App() {
         </div>
 
         <div className={styles.actions}>
+          {/* ── NoClear toggle ── */}
+          <button
+            id="noclear-btn"
+            className={`${styles.noClearBtn} ${noClear ? styles.noClearActive : ''}`}
+            onClick={toggleNoClear}
+            title={noClear ? 'NoClear ON — click to re-enable auto-wipe' : 'NoClear OFF — click to disable auto-wipe'}
+          >
+            {noClear ? '✅ NoClear' : '⛔ NoClear'}
+          </button>
+
           {/* ── pending: only show Wait button, no timer yet ── */}
           {phase === 'pending' && (
             <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
