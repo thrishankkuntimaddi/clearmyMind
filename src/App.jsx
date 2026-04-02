@@ -1,29 +1,30 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useNames }    from './hooks/useNames.js'
-import { useAuth }     from './hooks/useAuth.js'
+import { useNames } from './hooks/useNames.js'
+import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
-import { useTags }     from './hooks/useTags.js'
-import AuthScreen      from './components/AuthScreen.jsx'
-import NameInput       from './components/NameInput.jsx'
-import NameGrid        from './components/NameGrid.jsx'
-import BlastAnimation  from './components/BlastAnimation.jsx'
-import CongratsScreen  from './components/CongratsScreen.jsx'
-import LoadModal       from './components/LoadModal.jsx'
+import { useTags } from './hooks/useTags.js'
+import AuthScreen from './components/AuthScreen.jsx'
+import NameInput from './components/NameInput.jsx'
+import NameGrid from './components/NameGrid.jsx'
+import BlastAnimation from './components/BlastAnimation.jsx'
+import CongratsScreen from './components/CongratsScreen.jsx'
+import LoadModal from './components/LoadModal.jsx'
+import TagFilterBar from './components/TagFilterBar.jsx'
 import styles from './App.module.css'
 
 export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────────────
   const { status, attemptsLeft, biometricAvailable,
-          setupPassword, login, loginBiometric, lock } = useAuth()
+    setupPassword, login, loginBiometric, lock } = useAuth()
 
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
-  const { getTag, cycleTag, renameTag, removeTag, clearTags, tags } = useTags()
+  const { setTag, renameTag, removeTag, clearTags, tags } = useTags()
 
   // Wrap edit/remove/clearAll to keep tags in sync
-  const editName   = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next) }, [editNameBase, renameTag])
-  const removeName = useCallback((name)       => { removeNameBase(name); removeTag(name) },         [removeNameBase, removeTag])
-  const clearAll   = useCallback(()           => { clearAllBase(); clearTags() },                    [clearAllBase, clearTags])
+  const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next) }, [editNameBase, renameTag])
+  const removeName = useCallback((name) => { removeNameBase(name); removeTag(name) }, [removeNameBase, removeTag])
+  const clearAll = useCallback(() => { clearAllBase(); clearTags() }, [clearAllBase, clearTags])
 
   const prevStatus = useRef(status)
   useEffect(() => {
@@ -48,13 +49,13 @@ export default function App() {
     = useAutoWipe(noClear ? 0 : names.length)   // pass 0 when NoClear is ON → never triggers
 
   const capturedNames = useRef([])
-  const hasBlasted    = useRef(false)    // prevents StrictMode double-run from wiping capturedNames
+  const hasBlasted = useRef(false)    // prevents StrictMode double-run from wiping capturedNames
 
   useEffect(() => {
     if (phase === 'blasting' && !hasBlasted.current) {
       // Capture BEFORE clearAll so StrictMode's second invocation sees names=[]
       // and the guard skips it
-      hasBlasted.current  = true
+      hasBlasted.current = true
       capturedNames.current = [...names]
       clearAll()
     }
@@ -93,7 +94,7 @@ export default function App() {
     if (status !== 'unlocked') return
 
     function handlePaste(e) {
-      const text  = e.clipboardData?.getData('text/plain') ?? ''
+      const text = e.clipboardData?.getData('text/plain') ?? ''
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
       // Single-name paste while an input is focused → let browser handle normally
@@ -137,8 +138,8 @@ export default function App() {
   }
 
   // ── Timer display helpers ──────────────────────────────────────────────────
-  const mins    = Math.floor(countdown / 60)
-  const secs    = countdown % 60
+  const mins = Math.floor(countdown / 60)
+  const secs = countdown % 60
   const timeStr = countdown >= 60
     ? `${mins}:${secs.toString().padStart(2, '0')}`
     : `${countdown}s`
@@ -155,9 +156,8 @@ export default function App() {
           <span className={styles.title}>ClearMyMind</span>
           {names.length > 0 && (
             <span
-              className={`${styles.count} ${
-                names.length >= 90 ? styles.countCritical :
-                names.length >= 80 ? styles.countWarn : ''}`}
+              className={`${styles.count} ${names.length >= 90 ? styles.countCritical :
+                  names.length >= 80 ? styles.countWarn : ''}`}
               aria-live="polite"
             >
               {names.length}
@@ -241,7 +241,7 @@ export default function App() {
           tags={tags}
           onRemove={removeName}
           onEdit={editName}
-          onTagCycle={cycleTag}
+          onTagSet={setTag}
         />
       </section>
 

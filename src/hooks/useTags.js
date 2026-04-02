@@ -2,65 +2,62 @@ import { useState, useCallback } from 'react'
 
 const STORAGE_KEY = 'clearmind_tags'
 
-const CYCLE = [null, 'live', 'interested']  // click cycles through these
+// macOS-style tag colors
+export const TAG_COLORS = [
+  { key: 'red',    hex: '#ef4444', label: 'Red'    },
+  { key: 'orange', hex: '#f97316', label: 'Orange' },
+  { key: 'yellow', hex: '#eab308', label: 'Yellow' },
+  { key: 'green',  hex: '#22c55e', label: 'Green'  },
+  { key: 'blue',   hex: '#3b82f6', label: 'Blue'   },
+  { key: 'purple', hex: '#a855f7', label: 'Purple' },
+  { key: 'gray',   hex: '#6b7280', label: 'Gray'   },
+]
+
+export const TAG_MAP = Object.fromEntries(TAG_COLORS.map(t => [t.key, t]))
 
 function loadTags() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') }
+  catch { return {} }
 }
-
-function saveTags(tags) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tags))
-}
+function saveTags(t) { localStorage.setItem(STORAGE_KEY, JSON.stringify(t)) }
 
 export function useTags() {
   const [tags, setTags] = useState(loadTags)
 
-  const getTag = useCallback((name) => tags[name] ?? null, [tags])
-
-  const cycleTag = useCallback((name) => {
+  const setTag = useCallback((name, colorKey) => {
     setTags(prev => {
-      const current = prev[name] ?? null
-      const idx     = CYCLE.indexOf(current)
-      const next    = CYCLE[(idx + 1) % CYCLE.length]
-      const updated = { ...prev }
-      if (next === null) delete updated[name]
-      else updated[name] = next
-      saveTags(updated)
-      return updated
+      const next = { ...prev }
+      if (!colorKey) delete next[name]
+      else next[name] = colorKey
+      saveTags(next)
+      return next
     })
   }, [])
 
-  // Call when a name is renamed so the tag follows the new name
   const renameTag = useCallback((oldName, newName) => {
     setTags(prev => {
       if (!prev[oldName]) return prev
-      const updated = { ...prev }
-      updated[newName] = updated[oldName]
-      delete updated[oldName]
-      saveTags(updated)
-      return updated
+      const next = { ...prev, [newName]: prev[oldName] }
+      delete next[oldName]
+      saveTags(next)
+      return next
     })
   }, [])
 
-  // Call when a name is removed to clean up its tag
   const removeTag = useCallback((name) => {
     setTags(prev => {
       if (!prev[name]) return prev
-      const updated = { ...prev }
-      delete updated[name]
-      saveTags(updated)
-      return updated
+      const next = { ...prev }
+      delete next[name]
+      saveTags(next)
+      return next
     })
   }, [])
 
-  // Wipe all tags (used on clearAll / blast)
   const clearTags = useCallback(() => {
     setTags({})
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  return { tags, getTag, cycleTag, renameTag, removeTag, clearTags }
+  return { tags, setTag, renameTag, removeTag, clearTags }
 }

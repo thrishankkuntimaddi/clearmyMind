@@ -1,16 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
+import { TAG_MAP } from '../hooks/useTags.js'
+import TagPicker from './TagPicker.jsx'
 import styles from './NameCell.module.css'
 
-const TAG_CONFIG = {
-  live:       { label: 'Live',       cls: 'tagLive' },
-  interested: { label: 'Interested', cls: 'tagInterested' },
-}
-
-export default function NameCell({ name, tag, onEdit, onRemove, onTagCycle }) {
-  const [hovered,  setHovered]  = useState(false)
-  const [editing,  setEditing]  = useState(false)
-  const [draft,    setDraft]    = useState('')
-  const [removing, setRemoving] = useState(false)
+export default function NameCell({ name, tag, dimmed, onEdit, onRemove, onTagSet }) {
+  const [hovered,    setHovered]    = useState(false)
+  const [editing,    setEditing]    = useState(false)
+  const [draft,      setDraft]      = useState('')
+  const [removing,   setRemoving]   = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
 
   const editRef   = useRef(null)
   const committed = useRef(false)
@@ -24,6 +22,7 @@ export default function NameCell({ name, tag, onEdit, onRemove, onTagCycle }) {
     setDraft(name)
     setEditing(true)
     setHovered(false)
+    setShowPicker(false)
   }
 
   function commitEdit() {
@@ -68,27 +67,37 @@ export default function NameCell({ name, tag, onEdit, onRemove, onTagCycle }) {
     )
   }
 
-  const tagCfg = tag ? TAG_CONFIG[tag] : null
+  const tagColor = tag ? TAG_MAP[tag]?.hex : null
 
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div
-      className={`${styles.cell} ${removing ? styles.removing : ''}`}
+      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''}`}
       role="listitem"
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => { setHovered(false); setShowPicker(false) }}
     >
-      {/* Tag dot — always visible, cycles on click */}
-      <button
-        className={`${styles.tagDot} ${tagCfg ? styles[tagCfg.cls] : ''}`}
-        onClick={e => { e.stopPropagation(); onTagCycle(name) }}
-        title={tagCfg ? tagCfg.label : 'Set tag'}
-        aria-label={tagCfg ? `Tag: ${tagCfg.label}` : 'No tag'}
-      />
+      {/* Tag dot — click to open macOS-style color picker */}
+      <div className={styles.tagWrap}>
+        <button
+          className={styles.tagDot}
+          style={tagColor ? { background: tagColor, boxShadow: `0 0 5px ${tagColor}88`, borderColor: tagColor } : {}}
+          onClick={e => { e.stopPropagation(); setShowPicker(p => !p) }}
+          title={tag ? TAG_MAP[tag]?.label : 'Set tag'}
+          aria-label={tag ? `Tag: ${TAG_MAP[tag]?.label}` : 'Set tag'}
+        />
+        {showPicker && (
+          <TagPicker
+            currentTag={tag}
+            onSelect={color => { onTagSet(name, color); setShowPicker(false) }}
+            onClose={() => setShowPicker(false)}
+          />
+        )}
+      </div>
 
       <span className={styles.name} title={name}>{name}</span>
 
-      {hovered && (
+      {hovered && !showPicker && (
         <div className={styles.btnGroup}>
           <button
             className={`${styles.iconBtn} ${styles.editBtn}`}

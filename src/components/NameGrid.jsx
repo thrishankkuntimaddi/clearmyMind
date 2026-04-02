@@ -13,7 +13,7 @@ export default function NameGrid({ names, tags, onRemove, onEdit, onTagCycle }) 
     <div className={`${styles.wrapper} ${overflow ? styles.scrollable : ''}`}>
       {Array.from({ length: numPages }, (_, pageIdx) => {
         const pageNames = names.slice(pageIdx * PAGE, (pageIdx + 1) * PAGE)
-        const slots     = Array.from({ length: PAGE }, (_, i) =>
+        const slots = Array.from({ length: PAGE }, (_, i) =>
           i < pageNames.length ? pageNames[i] : null
         )
 
