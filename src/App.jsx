@@ -28,12 +28,21 @@ export default function App() {
     = useAutoWipe(names.length)
 
   const capturedNames = useRef([])
+  const hasBlasted    = useRef(false)    // prevents StrictMode double-run from wiping capturedNames
+
   useEffect(() => {
-    if (phase === 'blasting') {
+    if (phase === 'blasting' && !hasBlasted.current) {
+      // Capture BEFORE clearAll so StrictMode's second invocation sees names=[]
+      // and the guard skips it
+      hasBlasted.current  = true
       capturedNames.current = [...names]
       clearAll()
     }
-  }, [phase])   // eslint-disable-line
+    if (phase === 'idle') {
+      // Reset for next blast cycle
+      hasBlasted.current = false
+    }
+  }, [phase])   // eslint-disable-line — intentionally omit names/clearAll
 
   // ─── Copy ────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
