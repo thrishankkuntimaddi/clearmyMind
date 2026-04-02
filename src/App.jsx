@@ -5,7 +5,6 @@ import { useAutoWipe } from './hooks/useAutoWipe.js'
 import AuthScreen      from './components/AuthScreen.jsx'
 import NameInput       from './components/NameInput.jsx'
 import NameGrid        from './components/NameGrid.jsx'
-import WipeWarning     from './components/WipeWarning.jsx'
 import BlastAnimation  from './components/BlastAnimation.jsx'
 import CongratsScreen  from './components/CongratsScreen.jsx'
 import styles from './App.module.css'
@@ -18,40 +17,33 @@ export default function App() {
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName, removeName, clearAll, reloadFromStorage } = useNames()
 
-  // Sync names from localStorage whenever we unlock (covers post-wipe re-login)
   const prevStatus = useRef(status)
   useEffect(() => {
-    if (prevStatus.current !== 'unlocked' && status === 'unlocked') {
-      reloadFromStorage()
-    }
+    if (prevStatus.current !== 'unlocked' && status === 'unlocked') reloadFromStorage()
     prevStatus.current = status
   }, [status, reloadFromStorage])
 
-  // ─── Auto-wipe state machine ─────────────────────────────────────────────
+  // ─── Auto-wipe ────────────────────────────────────────────────────────────
   const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose, isWarning }
     = useAutoWipe(names.length)
 
-  // Capture names the moment blasting starts (before clearAll erases them)
   const capturedNames = useRef([])
   useEffect(() => {
     if (phase === 'blasting') {
       capturedNames.current = [...names]
-      clearAll()   // wipe localStorage + React state immediately
+      clearAll()
     }
-  }, [phase])       // intentionally omit clearAll/names to run only on phase change
+  }, [phase])   // eslint-disable-line
 
-  // ─── Copy ─────────────────────────────────────────────────────────────────
+  // ─── Copy ────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
-
   const handleCopy = useCallback(async () => {
     if (!names.length) return
     try {
       await navigator.clipboard.writeText(names.join('\n'))
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // silent
-    }
+    } catch { /**/ }
   }, [names])
 
   // ─── Auth screens ─────────────────────────────────────────────────────────
@@ -68,7 +60,6 @@ export default function App() {
     )
   }
 
-  // ─── Special overlay phases ────────────────────────────────────────────────
   if (phase === 'blasting') {
     return <BlastAnimation names={capturedNames.current} onComplete={handleBlastComplete} />
   }
@@ -76,6 +67,17 @@ export default function App() {
   if (phase === 'congrats') {
     return <CongratsScreen onClose={handleCongratsClose} />
   }
+
+  // ── Timer display helpers ──────────────────────────────────────────────────
+  const mins    = Math.floor(countdown / 60)
+  const secs    = countdown % 60
+  const timeStr = countdown >= 60
+    ? `${mins}:${secs.toString().padStart(2, '0')}`
+    : `${countdown}s`
+
+  const timerClass = phase === 'critical' ? styles.timerCritical
+    : phase === 'extended' ? styles.timerExtended
+    : styles.timerWarn
 
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
@@ -87,7 +89,9 @@ export default function App() {
           <span className={styles.title}>ClearMyMind</span>
           {names.length > 0 && (
             <span
-              className={`${styles.count} ${names.length >= 90 ? styles.countCritical : names.length >= 75 ? styles.countWarn : ''}`}
+              className={`${styles.count} ${
+                names.length >= 90 ? styles.countCritical :
+                names.length >= 75 ? styles.countWarn : ''}`}
               aria-live="polite"
             >
               {names.length}
@@ -96,6 +100,20 @@ export default function App() {
         </div>
 
         <div className={styles.actions}>
+          {/* ── Inline countdown (replaces blocking overlay) ── */}
+          {isWarning && (
+            <>
+              <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
+                💣 {timeStr}
+              </span>
+              {phase === 'warning' && (
+                <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
+                  Wait 5 min
+                </button>
+              )}
+            </>
+          )}
+
           <button
             id="copy-btn"
             className={`${styles.actionBtn} ${copied ? styles.copied : ''}`}
@@ -135,11 +153,6 @@ export default function App() {
       <section className={styles.gridSection} aria-label="Name list">
         <NameGrid names={names} onRemove={removeName} onEdit={editName} />
       </section>
-
-      {/* ── Warning overlay (renders on top of grid, grid still visible) ── */}
-      {isWarning && (
-        <WipeWarning phase={phase} countdown={countdown} onWait={handleWait} />
-      )}
     </div>
   )
 }

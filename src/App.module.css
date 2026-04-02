@@ -64,6 +64,64 @@
   to   { transform: scale(1.12); }
 }
 
+/* ─── Inline timer badge ─── */
+.timerBadge {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timerWarn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  animation: timerPulse 1s ease-in-out infinite alternate;
+}
+
+.timerExtended {
+  color: #fb923c;
+  background: rgba(251, 146, 60, 0.1);
+  border-color: rgba(251, 146, 60, 0.3);
+}
+
+.timerCritical {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.4);
+  animation: timerPulse 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes timerPulse {
+  from { opacity: 1;   transform: scale(1); }
+  to   { opacity: 0.75; transform: scale(1.04); }
+}
+
+/* ─── "Wait 5 min" button ─── */
+.waitBtn {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 5px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.waitBtn:hover {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
 /* ─── Action buttons ─── */
 .actions {
   display: flex;
