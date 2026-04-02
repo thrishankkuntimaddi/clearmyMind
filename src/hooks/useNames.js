@@ -71,5 +71,9 @@ export function useNames() {
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  return { names, addName, editName, removeName, clearAll }
+  const reloadFromStorage = useCallback(() => {
+    setNames(sortNames(loadNames()))
+  }, [])
+
+  return { names, addName, editName, removeName, clearAll, reloadFromStorage }
 }

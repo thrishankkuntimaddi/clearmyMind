@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNames } from './hooks/useNames.js'
 import { useAuth }  from './hooks/useAuth.js'
 import AuthScreen   from './components/AuthScreen.jsx'
@@ -11,8 +11,19 @@ export default function App() {
   const { status, attemptsLeft, biometricAvailable,
           setupPassword, login, loginBiometric, lock } = useAuth()
 
-  // ─── Names (only active when unlocked) ───────────────────────────────────
-  const { names, addName, editName, removeName, clearAll } = useNames()
+  // ─── Names ───────────────────────────────────────────────────────────────
+  const { names, addName, editName, removeName, clearAll, reloadFromStorage } = useNames()
+
+  // ─── Sync names from localStorage whenever we unlock ─────────────────────
+  // This covers: normal login AND post-3-attempt-wipe re-login.
+  // Without this, old names stay in React memory even after localStorage wiped.
+  const prevStatus = useRef(status)
+  useEffect(() => {
+    if (prevStatus.current !== 'unlocked' && status === 'unlocked') {
+      reloadFromStorage()
+    }
+    prevStatus.current = status
+  }, [status, reloadFromStorage])
 
   // ─── Copy ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
