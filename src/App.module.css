@@ -193,9 +193,11 @@
   font-size: 14px;
 }
 
-/* ─── Input section ─── */
+/* ─── Input section — centered ─── */
 .inputSection {
   flex-shrink: 0;
+  display: flex;
+  justify-content: center;
 }
 
 /* ─── Grid fills all remaining space ─── */
