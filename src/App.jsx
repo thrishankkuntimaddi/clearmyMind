@@ -7,6 +7,7 @@ import NameInput       from './components/NameInput.jsx'
 import NameGrid        from './components/NameGrid.jsx'
 import BlastAnimation  from './components/BlastAnimation.jsx'
 import CongratsScreen  from './components/CongratsScreen.jsx'
+import LoadModal       from './components/LoadModal.jsx'
 import styles from './App.module.css'
 
 export default function App() {
@@ -55,19 +56,16 @@ export default function App() {
     } catch { /**/ }
   }, [names])
 
-  const handleLoad = useCallback(async () => {
-    try {
-      const text  = await navigator.clipboard.readText()
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-      if (!lines.length) return
-      let added = 0
-      lines.forEach(name => { if (addName(name)) added++ })
-      if (added > 0) {
-        setRestored(added)
-        setTimeout(() => setRestored(0), 2500)
-      }
-    } catch { /**/ }
+  const handleLoad = useCallback((lines) => {
+    let added = 0
+    lines.forEach(name => { if (addName(name)) added++ })
+    if (added > 0) {
+      setRestored(added)
+      setTimeout(() => setRestored(0), 2500)
+    }
   }, [addName])
+
+  const [showLoadModal, setShowLoadModal] = useState(false)
 
   // ─── Paste to load ───────────────────────────────────────────────────────
   const [restored, setRestored] = useState(0)   // 0 = toast hidden
@@ -175,9 +173,9 @@ export default function App() {
           <button
             id="load-btn"
             className={`${styles.actionBtn} ${styles.load}`}
-            onClick={handleLoad}
+            onClick={() => setShowLoadModal(true)}
             aria-label="Load names from clipboard"
-            title="Paste names from clipboard"
+            title="Paste names here to load"
           >
             Load
           </button>
@@ -217,6 +215,14 @@ export default function App() {
         <div className={styles.toast} role="status" aria-live="polite">
           ↓ Restored {restored} name{restored === 1 ? '' : 's'}
         </div>
+      )}
+
+      {/* ── Load modal ── */}
+      {showLoadModal && (
+        <LoadModal
+          onLoad={handleLoad}
+          onClose={() => setShowLoadModal(false)}
+        />
       )}
     </div>
   )
