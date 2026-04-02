@@ -6,26 +6,34 @@ export default function NameCell({ name, onEdit, onRemove }) {
   const [editing,  setEditing]  = useState(false)
   const [draft,    setDraft]    = useState('')
   const [removing, setRemoving] = useState(false)
-  const editRef = useRef(null)
 
-  // Focus inline input when edit mode opens
+  const editRef    = useRef(null)
+  // Guard against double-commit (blur fires when input unmounts after Enter)
+  const committed  = useRef(false)
+
   useEffect(() => {
     if (editing) editRef.current?.focus()
   }, [editing])
 
   function startEdit() {
+    committed.current = false
     setDraft(name)
     setEditing(true)
     setHovered(false)
   }
 
   function commitEdit() {
+    // Prevent double-call: Enter key fires → input unmounts → blur fires
+    if (committed.current) return
+    committed.current = true
+
     const trimmed = draft.trim()
-    if (trimmed && trimmed !== name) onEdit(name, trimmed)
+    if (trimmed) onEdit(name, trimmed)   // let editName handle dedup + title-case
     setEditing(false)
   }
 
   function cancelEdit() {
+    committed.current = true   // also mark as done so blur doesn't re-commit
     setEditing(false)
     setDraft('')
   }
