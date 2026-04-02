@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNames }    from './hooks/useNames.js'
 import { useAuth }     from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
+import { useTags }     from './hooks/useTags.js'
 import AuthScreen      from './components/AuthScreen.jsx'
 import NameInput       from './components/NameInput.jsx'
 import NameGrid        from './components/NameGrid.jsx'
@@ -16,7 +17,13 @@ export default function App() {
           setupPassword, login, loginBiometric, lock } = useAuth()
 
   // ─── Names ───────────────────────────────────────────────────────────────
-  const { names, addName, editName, removeName, clearAll, reloadFromStorage } = useNames()
+  const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
+  const { getTag, cycleTag, renameTag, removeTag, clearTags, tags } = useTags()
+
+  // Wrap edit/remove/clearAll to keep tags in sync
+  const editName   = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next) }, [editNameBase, renameTag])
+  const removeName = useCallback((name)       => { removeNameBase(name); removeTag(name) },         [removeNameBase, removeTag])
+  const clearAll   = useCallback(()           => { clearAllBase(); clearTags() },                    [clearAllBase, clearTags])
 
   const prevStatus = useRef(status)
   useEffect(() => {
@@ -141,7 +148,7 @@ export default function App() {
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
-      {/* ── Header ── */}
+      {/* ── Header — single line: brand | input | actions ── */}
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
@@ -156,6 +163,11 @@ export default function App() {
               {names.length}
             </span>
           )}
+        </div>
+
+        {/* Input lives in the header, grows to fill the middle */}
+        <div className={styles.headerInput}>
+          <NameInput onAdd={addName} />
         </div>
 
         <div className={styles.actions}>
@@ -222,14 +234,15 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Input ── */}
-      <section className={styles.inputSection} aria-label="Add a name">
-        <NameInput onAdd={addName} />
-      </section>
-
       {/* ── Grid ── */}
       <section className={styles.gridSection} aria-label="Name list">
-        <NameGrid names={names} onRemove={removeName} onEdit={editName} />
+        <NameGrid
+          names={names}
+          tags={tags}
+          onRemove={removeName}
+          onEdit={editName}
+          onTagCycle={cycleTag}
+        />
       </section>
 
       {/* ── Paste-restore toast ── */}

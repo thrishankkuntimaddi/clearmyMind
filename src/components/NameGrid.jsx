@@ -5,14 +5,13 @@ const COLS = 5
 const ROWS = 20
 const PAGE = COLS * ROWS   // 100 names per grid block
 
-export default function NameGrid({ names, onRemove, onEdit }) {
-  const numPages  = Math.max(1, Math.ceil(names.length / PAGE))
-  const overflow  = names.length > PAGE
+export default function NameGrid({ names, tags, onRemove, onEdit, onTagCycle }) {
+  const numPages = Math.max(1, Math.ceil(names.length / PAGE))
+  const overflow = names.length > PAGE
 
   return (
     <div className={`${styles.wrapper} ${overflow ? styles.scrollable : ''}`}>
       {Array.from({ length: numPages }, (_, pageIdx) => {
-        // Slice this page's names, pad remaining slots to null
         const pageNames = names.slice(pageIdx * PAGE, (pageIdx + 1) * PAGE)
         const slots     = Array.from({ length: PAGE }, (_, i) =>
           i < pageNames.length ? pageNames[i] : null
@@ -30,8 +29,10 @@ export default function NameGrid({ names, onRemove, onEdit }) {
                 <NameCell
                   key={name}
                   name={name}
+                  tag={tags[name] ?? null}
                   onRemove={onRemove}
                   onEdit={onEdit}
+                  onTagCycle={onTagCycle}
                 />
               ) : (
                 <div

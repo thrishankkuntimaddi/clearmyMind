@@ -5,16 +5,28 @@
   height: 100dvh;
   overflow: hidden;
   padding: 8px 12px 10px;
-  gap: 7px;
+  gap: 8px;
 }
 
 /* ─── Header ─── */
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   flex-shrink: 0;
+}
+
+/* Input slot — centered in the middle of the header */
+.headerInput {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.headerInput > * {
+  width: 100%;
+  max-width: 360px;
 }
 
 .brand {

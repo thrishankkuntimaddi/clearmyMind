@@ -1,15 +1,19 @@
 import { useState, useRef, useEffect } from 'react'
 import styles from './NameCell.module.css'
 
-export default function NameCell({ name, onEdit, onRemove }) {
+const TAG_CONFIG = {
+  live:       { label: 'Live',       cls: 'tagLive' },
+  interested: { label: 'Interested', cls: 'tagInterested' },
+}
+
+export default function NameCell({ name, tag, onEdit, onRemove, onTagCycle }) {
   const [hovered,  setHovered]  = useState(false)
   const [editing,  setEditing]  = useState(false)
   const [draft,    setDraft]    = useState('')
   const [removing, setRemoving] = useState(false)
 
-  const editRef    = useRef(null)
-  // Guard against double-commit (blur fires when input unmounts after Enter)
-  const committed  = useRef(false)
+  const editRef   = useRef(null)
+  const committed = useRef(false)
 
   useEffect(() => {
     if (editing) editRef.current?.focus()
@@ -23,17 +27,15 @@ export default function NameCell({ name, onEdit, onRemove }) {
   }
 
   function commitEdit() {
-    // Prevent double-call: Enter key fires → input unmounts → blur fires
     if (committed.current) return
     committed.current = true
-
     const trimmed = draft.trim()
-    if (trimmed) onEdit(name, trimmed)   // let editName handle dedup + title-case
+    if (trimmed) onEdit(name, trimmed)
     setEditing(false)
   }
 
   function cancelEdit() {
-    committed.current = true   // also mark as done so blur doesn't re-commit
+    committed.current = true
     setEditing(false)
     setDraft('')
   }
@@ -56,7 +58,7 @@ export default function NameCell({ name, onEdit, onRemove }) {
           ref={editRef}
           className={styles.editInput}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={e => setDraft(e.target.value)}
           onKeyDown={handleEditKey}
           onBlur={commitEdit}
           spellCheck={false}
@@ -66,6 +68,8 @@ export default function NameCell({ name, onEdit, onRemove }) {
     )
   }
 
+  const tagCfg = tag ? TAG_CONFIG[tag] : null
+
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div
@@ -74,6 +78,14 @@ export default function NameCell({ name, onEdit, onRemove }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {/* Tag dot — always visible, cycles on click */}
+      <button
+        className={`${styles.tagDot} ${tagCfg ? styles[tagCfg.cls] : ''}`}
+        onClick={e => { e.stopPropagation(); onTagCycle(name) }}
+        title={tagCfg ? tagCfg.label : 'Set tag'}
+        aria-label={tagCfg ? `Tag: ${tagCfg.label}` : 'No tag'}
+      />
+
       <span className={styles.name} title={name}>{name}</span>
 
       {hovered && (
@@ -83,17 +95,13 @@ export default function NameCell({ name, onEdit, onRemove }) {
             onClick={startEdit}
             aria-label={`Edit ${name}`}
             title="Edit"
-          >
-            ✎
-          </button>
+          >✎</button>
           <button
             className={`${styles.iconBtn} ${styles.removeBtn}`}
             onClick={handleRemove}
             aria-label={`Remove ${name}`}
             title="Remove"
-          >
-            ×
-          </button>
+          >×</button>
         </div>
       )}
     </div>
