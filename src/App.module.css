@@ -161,6 +161,19 @@
   background: rgba(52, 211, 153, 0.08) !important;
 }
 
+/* Load variant */
+.load {
+  color: #818cf8;
+  border-color: rgba(129, 140, 248, 0.25);
+  background: rgba(129, 140, 248, 0.06);
+}
+
+.load:hover:not(:disabled) {
+  background: rgba(129, 140, 248, 0.14);
+  border-color: rgba(129, 140, 248, 0.4);
+  color: #a5b4fc;
+}
+
 /* Danger variant */
 .danger {
   color: var(--danger);

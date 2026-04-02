@@ -55,6 +55,20 @@ export default function App() {
     } catch { /**/ }
   }, [names])
 
+  const handleLoad = useCallback(async () => {
+    try {
+      const text  = await navigator.clipboard.readText()
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+      if (!lines.length) return
+      let added = 0
+      lines.forEach(name => { if (addName(name)) added++ })
+      if (added > 0) {
+        setRestored(added)
+        setTimeout(() => setRestored(0), 2500)
+      }
+    } catch { /**/ }
+  }, [addName])
+
   // ─── Paste to load ───────────────────────────────────────────────────────
   const [restored, setRestored] = useState(0)   // 0 = toast hidden
 
@@ -157,6 +171,15 @@ export default function App() {
             aria-label="Copy all names"
           >
             {copied ? '✓ Copied!' : 'Copy'}
+          </button>
+          <button
+            id="load-btn"
+            className={`${styles.actionBtn} ${styles.load}`}
+            onClick={handleLoad}
+            aria-label="Load names from clipboard"
+            title="Paste names from clipboard"
+          >
+            Load
           </button>
           <button
             id="clear-btn"
