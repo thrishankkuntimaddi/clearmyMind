@@ -43,6 +43,25 @@
   border: 1px solid var(--border-default);
   border-radius: 99px;
   padding: 2px 8px;
+  transition: color 0.3s, background 0.3s, border-color 0.3s;
+}
+
+.countWarn {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.countCritical {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
+  animation: countPulse 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes countPulse {
+  from { transform: scale(1); }
+  to   { transform: scale(1.12); }
 }
 
 /* ─── Action buttons ─── */

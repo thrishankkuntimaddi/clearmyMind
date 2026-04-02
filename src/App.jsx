@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useNames } from './hooks/useNames.js'
-import { useAuth }  from './hooks/useAuth.js'
-import AuthScreen   from './components/AuthScreen.jsx'
-import NameInput    from './components/NameInput.jsx'
-import NameGrid     from './components/NameGrid.jsx'
+import { useNames }    from './hooks/useNames.js'
+import { useAuth }     from './hooks/useAuth.js'
+import { useAutoWipe } from './hooks/useAutoWipe.js'
+import AuthScreen      from './components/AuthScreen.jsx'
+import NameInput       from './components/NameInput.jsx'
+import NameGrid        from './components/NameGrid.jsx'
+import WipeWarning     from './components/WipeWarning.jsx'
+import BlastAnimation  from './components/BlastAnimation.jsx'
+import CongratsScreen  from './components/CongratsScreen.jsx'
 import styles from './App.module.css'
 
 export default function App() {
@@ -14,9 +18,7 @@ export default function App() {
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName, removeName, clearAll, reloadFromStorage } = useNames()
 
-  // ─── Sync names from localStorage whenever we unlock ─────────────────────
-  // This covers: normal login AND post-3-attempt-wipe re-login.
-  // Without this, old names stay in React memory even after localStorage wiped.
+  // Sync names from localStorage whenever we unlock (covers post-wipe re-login)
   const prevStatus = useRef(status)
   useEffect(() => {
     if (prevStatus.current !== 'unlocked' && status === 'unlocked') {
@@ -24,6 +26,19 @@ export default function App() {
     }
     prevStatus.current = status
   }, [status, reloadFromStorage])
+
+  // ─── Auto-wipe state machine ─────────────────────────────────────────────
+  const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose, isWarning }
+    = useAutoWipe(names.length)
+
+  // Capture names the moment blasting starts (before clearAll erases them)
+  const capturedNames = useRef([])
+  useEffect(() => {
+    if (phase === 'blasting') {
+      capturedNames.current = [...names]
+      clearAll()   // wipe localStorage + React state immediately
+    }
+  }, [phase])       // intentionally omit clearAll/names to run only on phase change
 
   // ─── Copy ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
@@ -35,7 +50,7 @@ export default function App() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      // Clipboard not available — silent fail
+      // silent
     }
   }, [names])
 
@@ -53,6 +68,15 @@ export default function App() {
     )
   }
 
+  // ─── Special overlay phases ────────────────────────────────────────────────
+  if (phase === 'blasting') {
+    return <BlastAnimation names={capturedNames.current} onComplete={handleBlastComplete} />
+  }
+
+  if (phase === 'congrats') {
+    return <CongratsScreen onClose={handleCongratsClose} />
+  }
+
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
@@ -62,7 +86,10 @@ export default function App() {
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
           <span className={styles.title}>ClearMyMind</span>
           {names.length > 0 && (
-            <span className={styles.count} aria-live="polite">
+            <span
+              className={`${styles.count} ${names.length >= 90 ? styles.countCritical : names.length >= 75 ? styles.countWarn : ''}`}
+              aria-live="polite"
+            >
               {names.length}
             </span>
           )}
@@ -108,6 +135,11 @@ export default function App() {
       <section className={styles.gridSection} aria-label="Name list">
         <NameGrid names={names} onRemove={removeName} onEdit={editName} />
       </section>
+
+      {/* ── Warning overlay (renders on top of grid, grid still visible) ── */}
+      {isWarning && (
+        <WipeWarning phase={phase} countdown={countdown} onWait={handleWait} />
+      )}
     </div>
   )
 }
