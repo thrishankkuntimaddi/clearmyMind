@@ -55,6 +55,34 @@ export default function App() {
     } catch { /**/ }
   }, [names])
 
+  // ─── Paste to load ───────────────────────────────────────────────────────
+  const [restored, setRestored] = useState(0)   // 0 = toast hidden
+
+  useEffect(() => {
+    if (status !== 'unlocked') return
+
+    function handlePaste(e) {
+      const text  = e.clipboardData?.getData('text/plain') ?? ''
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+
+      // Single-name paste while an input is focused → let browser handle normally
+      if (lines.length <= 1 && document.activeElement?.tagName === 'INPUT') return
+      if (lines.length < 1) return
+
+      e.preventDefault()
+      let added = 0
+      lines.forEach(name => { if (addName(name)) added++ })
+
+      if (added > 0) {
+        setRestored(added)
+        setTimeout(() => setRestored(0), 2500)
+      }
+    }
+
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [status, addName])
+
   // ─── Auth screens ─────────────────────────────────────────────────────────
   if (status === 'setup' || status === 'locked') {
     return (
@@ -160,6 +188,13 @@ export default function App() {
       <section className={styles.gridSection} aria-label="Name list">
         <NameGrid names={names} onRemove={removeName} onEdit={editName} />
       </section>
+
+      {/* ── Paste-restore toast ── */}
+      {restored > 0 && (
+        <div className={styles.toast} role="status" aria-live="polite">
+          ↓ Restored {restored} name{restored === 1 ? '' : 's'}
+        </div>
+      )}
     </div>
   )
 }
