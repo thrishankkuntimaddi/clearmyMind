@@ -11,15 +11,15 @@ export default function NameInput({ onAdd }) {
   // works immediately without needing to click the field first.
   useEffect(() => {
     function handleGlobalKeyDown(e) {
-      // Already focused — nothing to do
-      if (document.activeElement === inputRef.current) return
+      // If ANY input or textarea is active, don't interfere
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
       // Ignore modifier combos (Ctrl+C, Cmd+R, etc.)
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      // Only react to single printable characters (length === 1)
+      // Only react to single printable characters
       if (e.key.length !== 1) return
 
       inputRef.current?.focus()
-      // Don't preventDefault — let the character land naturally in the input
     }
 
     document.addEventListener('keydown', handleGlobalKeyDown)

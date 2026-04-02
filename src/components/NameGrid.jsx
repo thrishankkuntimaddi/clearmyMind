@@ -5,7 +5,7 @@ const COLS        = 5
 const TOTAL_SLOTS = 100          // 5 × 20 = 100
 const ROWS        = TOTAL_SLOTS / COLS   // 20
 
-export default function NameGrid({ names, onRemove }) {
+export default function NameGrid({ names, onRemove, onEdit }) {
   const slots = Array.from({ length: TOTAL_SLOTS }, (_, i) =>
     i < names.length ? names[i] : null
   )
@@ -14,7 +14,7 @@ export default function NameGrid({ names, onRemove }) {
     <div className={styles.grid} role="list" aria-label="Name list">
       {slots.map((name, idx) =>
         name !== null ? (
-          <NameCell key={name} name={name} onRemove={onRemove} />
+          <NameCell key={name} name={name} onRemove={onRemove} onEdit={onEdit} />
         ) : (
           <div key={`e-${idx}`} className={styles.emptyCell} aria-hidden="true" />
         )

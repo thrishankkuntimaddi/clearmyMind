@@ -12,7 +12,7 @@ export default function App() {
           setupPassword, login, loginBiometric, lock } = useAuth()
 
   // ─── Names (only active when unlocked) ───────────────────────────────────
-  const { names, addName, removeName, clearAll } = useNames()
+  const { names, addName, editName, removeName, clearAll } = useNames()
 
   // ─── Copy ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
@@ -95,7 +95,7 @@ export default function App() {
 
       {/* ── Grid ── */}
       <section className={styles.gridSection} aria-label="Name list">
-        <NameGrid names={names} onRemove={removeName} />
+        <NameGrid names={names} onRemove={removeName} onEdit={editName} />
       </section>
     </div>
   )
