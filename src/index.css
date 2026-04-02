@@ -1,0 +1,84 @@
+/* ─────────────────────────────────────────────
+   ClearMyMind — Global Styles
+   ───────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg-base:        #0d0d0f;
+  --bg-surface:     #141417;
+  --bg-elevated:    #1a1a1f;
+  --bg-hover:       #22222a;
+
+  --border-subtle:  #222228;
+  --border-default: #2c2c36;
+  --border-focus:   #6366f1;
+
+  --text-primary:   #f0f0f4;
+  --text-secondary: #8888a0;
+  --text-muted:     #555566;
+
+  --accent:         #6366f1;
+  --accent-soft:    rgba(99, 102, 241, 0.12);
+  --accent-glow:    rgba(99, 102, 241, 0.25);
+
+  --danger:         #ef4444;
+  --danger-soft:    rgba(239, 68, 68, 0.1);
+
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+
+  --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-main);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100dvh;
+  line-height: 1.5;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* ─────────────────────────────────────────────
+   Scrollbar
+   ───────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ─────────────────────────────────────────────
+   Selection
+   ───────────────────────────────────────────── */
+::selection {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
