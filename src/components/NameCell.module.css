@@ -12,14 +12,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 11px 14px;
+  gap: 6px;
+  padding: 0 12px;
   background: var(--bg-surface);
-  min-height: 48px;
   cursor: default;
   transition: background var(--transition);
   animation: fadeIn 200ms ease forwards;
   overflow: hidden;
+  /* height is controlled entirely by the grid row (1fr) */
 }
 
 .cell:hover {

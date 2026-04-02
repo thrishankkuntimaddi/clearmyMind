@@ -44,10 +44,6 @@ export default function App() {
           <NameGrid names={names} onRemove={removeName} />
         </section>
       </main>
-
-      <footer className={styles.footer}>
-        <span>Sorted A → Z &middot; Persisted locally &middot; Hover a name to remove it</span>
-      </footer>
     </div>
   )
 }

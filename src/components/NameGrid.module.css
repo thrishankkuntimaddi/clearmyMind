@@ -1,11 +1,13 @@
 /*
-  Column-major grid: 25 rows × 4 columns = 100 slots
-  CSS grid-auto-flow: column fills top→bottom in col1, then col2, etc.
+  Grid fills 100% of its flex parent.
+  25 rows × 4 columns = 100 slots, all visible at once.
+  grid-auto-flow: column → fills top→bottom per column.
 */
 
 .grid {
+  height: 100%;
   display: grid;
-  grid-template-rows: repeat(25, minmax(44px, auto));
+  grid-template-rows: repeat(25, 1fr);   /* stretch evenly to fill height */
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
   border: 1px solid var(--border-default);
@@ -13,18 +15,18 @@
   overflow: hidden;
 }
 
-/* Every cell gets inner separator borders */
+/* Inner separators */
 .grid > * {
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Last row of every column (25th, 50th, 75th, 100th) — no bottom border */
+/* Remove bottom border on last row of each column (25th item per column) */
 .grid > *:nth-child(25n) {
   border-bottom: none;
 }
 
-/* Last column (slots 76–100) — no right border */
+/* Remove right border on last column (slots 76–100) */
 .grid > *:nth-child(n+76) {
   border-right: none;
 }
@@ -32,33 +34,9 @@
 /* ─── Empty slot ─── */
 .emptyCell {
   background: var(--bg-surface);
-  min-height: 44px;
   transition: background var(--transition);
 }
 
 .emptyCell:hover {
   background: var(--bg-elevated);
-}
-
-/* ─── Responsive — 2 columns on mobile ─── */
-@media (max-width: 600px) {
-  .grid {
-    grid-template-rows: repeat(50, minmax(40px, auto));
-  }
-
-  /* Reset last-row rule, re-apply for 50 rows */
-  .grid > *:nth-child(25n) {
-    border-bottom: 1px solid var(--border-subtle);
-  }
-  .grid > *:nth-child(50n) {
-    border-bottom: none;
-  }
-
-  /* Reset last-col rule, re-apply for 2 cols (slots 51–100) */
-  .grid > *:nth-child(n+76) {
-    border-right: 1px solid var(--border-subtle);
-  }
-  .grid > *:nth-child(n+51) {
-    border-right: none;
-  }
 }

@@ -1,10 +1,14 @@
+/* ─── App shell: full viewport, no scroll ─── */
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
-  max-width: 1100px;
+  height: 100dvh;
+  overflow: hidden;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 0 24px;
+  width: 100%;
+  padding: 10px 20px 12px;
+  gap: 8px;
 }
 
 /* ─── Header ─── */
@@ -12,31 +16,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 28px 0 24px;
+  gap: 12px;
+  flex-shrink: 0;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
 .brandIcon {
-  font-size: 32px;
+  font-size: 22px;
   line-height: 1;
 }
 
 .title {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  line-height: 1.2;
 }
 
 .subtitle {
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 400;
   color: var(--text-muted);
   margin-top: 1px;
@@ -47,28 +53,28 @@
 .meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .count {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 99px;
-  padding: 4px 12px;
+  padding: 3px 10px;
 }
 
 .clearBtn {
   font-family: var(--font-main);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--danger);
   background: var(--danger-soft);
   border: 1px solid rgba(239, 68, 68, 0.2);
   border-radius: var(--radius-sm);
-  padding: 7px 16px;
+  padding: 5px 14px;
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition), opacity var(--transition);
 }
@@ -83,46 +89,14 @@
   cursor: not-allowed;
 }
 
-/* ─── Main ─── */
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 28px 0;
+/* ─── Input row ─── */
+.inputSection {
+  flex-shrink: 0;
 }
 
-/* .inputSection — inherits flex flow from .main */
-
+/* ─── Grid fills ALL remaining space ─── */
 .gridSection {
   flex: 1;
-}
-
-/* ─── Footer ─── */
-.footer {
-  border-top: 1px solid var(--border-subtle);
-  padding: 14px 0 18px;
-  font-size: 11.5px;
-  color: var(--text-muted);
-  text-align: center;
-  letter-spacing: 0.02em;
-}
-
-/* ─── Responsive ─── */
-@media (max-width: 600px) {
-  .app {
-    padding: 0 16px;
-  }
-
-  .header {
-    padding: 20px 0 16px;
-  }
-
-  .title {
-    font-size: 17px;
-  }
-
-  .brandIcon {
-    font-size: 26px;
-  }
+  min-height: 0;      /* critical: allow flex child to shrink */
+  overflow: hidden;
 }
