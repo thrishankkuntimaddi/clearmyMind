@@ -1,10 +1,30 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import styles from './NameInput.module.css'
 
 export default function NameInput({ onAdd }) {
   const [value, setValue] = useState('')
   const [shake, setShake] = useState(false)
   const inputRef = useRef(null)
+
+  // ─── Global key capture ───────────────────────────────────────────────────
+  // Any printable keystroke on the page auto-focuses the input so typing
+  // works immediately without needing to click the field first.
+  useEffect(() => {
+    function handleGlobalKeyDown(e) {
+      // Already focused — nothing to do
+      if (document.activeElement === inputRef.current) return
+      // Ignore modifier combos (Ctrl+C, Cmd+R, etc.)
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      // Only react to single printable characters (length === 1)
+      if (e.key.length !== 1) return
+
+      inputRef.current?.focus()
+      // Don't preventDefault — let the character land naturally in the input
+    }
+
+    document.addEventListener('keydown', handleGlobalKeyDown)
+    return () => document.removeEventListener('keydown', handleGlobalKeyDown)
+  }, [])
 
   function handleKeyDown(e) {
     if (e.key !== 'Enter') return
@@ -14,7 +34,6 @@ export default function NameInput({ onAdd }) {
     if (success) {
       setValue('')
     } else {
-      // Duplicate or empty — trigger shake
       setShake(true)
       setTimeout(() => setShake(false), 400)
     }
