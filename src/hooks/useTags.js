@@ -62,5 +62,5 @@ export function useTags() {
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  return { getTag, cycleTag, renameTag, removeTag, clearTags }
+  return { tags, getTag, cycleTag, renameTag, removeTag, clearTags }
 }
