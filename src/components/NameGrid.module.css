@@ -1,90 +1,64 @@
+/*
+  Column-major grid: 25 rows × 4 columns = 100 slots
+  CSS grid-auto-flow: column fills top→bottom in col1, then col2, etc.
+*/
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  border: 1px solid var(--border-subtle);
+  grid-template-rows: repeat(25, minmax(44px, auto));
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
 
-/* Each cell gets consistent borders */
+/* Every cell gets inner separator borders */
 .grid > * {
   border-right: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Remove right border on last column items */
-.grid > *:nth-child(4n) {
+/* Last row of every column (25th, 50th, 75th, 100th) — no bottom border */
+.grid > *:nth-child(25n) {
+  border-bottom: none;
+}
+
+/* Last column (slots 76–100) — no right border */
+.grid > *:nth-child(n+76) {
   border-right: none;
 }
 
-/* Bottom borders are handled by outer container's overflow:hidden */
-
-/* ─── Phantom / padding cells ─── */
-.phantom {
-  background: transparent;
-  min-height: 48px;
+/* ─── Empty slot ─── */
+.emptyCell {
+  background: var(--bg-surface);
+  min-height: 44px;
+  transition: background var(--transition);
 }
 
-/* ─── Empty state ─── */
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 72px 24px;
-  text-align: center;
-}
-
-.emptyIcon {
-  font-size: 48px;
-  opacity: 0.3;
-  filter: grayscale(1);
-}
-
-.emptyText {
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.emptyHint {
-  font-size: 13px;
-  color: var(--text-muted);
-  opacity: 0.65;
-}
-
-.emptyHint kbd {
-  font-family: var(--font-main);
-  font-size: 11px;
+.emptyCell:hover {
   background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  padding: 1px 6px;
-  color: var(--text-secondary);
 }
 
-/* ─── Responsive ─── */
-@media (max-width: 768px) {
+/* ─── Responsive — 2 columns on mobile ─── */
+@media (max-width: 600px) {
   .grid {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(50, minmax(40px, auto));
   }
-  .grid > *:nth-child(4n) {
-    border-right: 1px solid var(--border-subtle);
-  }
-  .grid > *:nth-child(3n) {
-    border-right: none;
-  }
-}
 
-@media (max-width: 480px) {
-  .grid {
-    grid-template-columns: repeat(2, 1fr);
+  /* Reset last-row rule, re-apply for 50 rows */
+  .grid > *:nth-child(25n) {
+    border-bottom: 1px solid var(--border-subtle);
   }
-  .grid > *:nth-child(3n) {
+  .grid > *:nth-child(50n) {
+    border-bottom: none;
+  }
+
+  /* Reset last-col rule, re-apply for 2 cols (slots 51–100) */
+  .grid > *:nth-child(n+76) {
     border-right: 1px solid var(--border-subtle);
   }
-  .grid > *:nth-child(2n) {
+  .grid > *:nth-child(n+51) {
     border-right: none;
   }
 }
