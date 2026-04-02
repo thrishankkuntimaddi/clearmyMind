@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-const WARN_THRESHOLD     = 75   // names to trigger warning
-const CRITICAL_THRESHOLD = 90   // names to escalate during extended
-const TIME_WARN          = 60   // 60 seconds
-const TIME_EXTENDED      = 300  // 5 minutes
-const TIME_CRITICAL      = 30   // 30 seconds
+const WARN_THRESHOLD     = 80   // show Wait button
+const CRITICAL_THRESHOLD = 90   // escalate to 10s
+const TIME_COUNTING      = 300  // 5 minutes after clicking Wait
+const TIME_CRITICAL      = 10   // 10 seconds urgent
 
 export function useAutoWipe(nameCount) {
-  // phase: 'idle' | 'warning' | 'extended' | 'critical' | 'blasting' | 'congrats'
-  const [phase, setPhase]         = useState('idle')
+  // phase: 'idle' | 'pending' | 'counting' | 'critical' | 'blasting' | 'congrats'
+  const [phase,     setPhase]     = useState('idle')
   const [countdown, setCountdown] = useState(0)
-  const intervalRef = useRef(null)
-  const phaseRef    = useRef('idle')   // sync ref readable inside intervals
 
+  const phaseRef     = useRef('idle')
+  const countdownRef = useRef(0)      // source of truth for interval
+  const intervalRef  = useRef(null)
+
+  // ── Timer helpers ────────────────────────────────────────────────────────
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
@@ -22,39 +24,44 @@ export function useAutoWipe(nameCount) {
 
   const startTimer = useCallback((seconds, newPhase) => {
     stopTimer()
+
+    // Update refs synchronously so the interval closure always sees fresh values
+    phaseRef.current     = newPhase
+    countdownRef.current = seconds
     setPhase(newPhase)
-    phaseRef.current = newPhase
     setCountdown(seconds)
 
     intervalRef.current = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current)
-          intervalRef.current = null
-          setPhase('blasting')
-          phaseRef.current = 'blasting'
-          return 0
-        }
-        return prev - 1
-      })
+      const next = countdownRef.current - 1
+      countdownRef.current = next
+      setCountdown(next)
+
+      if (next <= 0) {
+        clearInterval(intervalRef.current)
+        intervalRef.current  = null
+        phaseRef.current     = 'blasting'
+        setPhase('blasting')
+      }
     }, 1000)
   }, [stopTimer])
 
-  // ── React to name-count changes ──────────────────────────────────────────
+  // ── Name-count watcher ────────────────────────────────────────────────────
   useEffect(() => {
     const p = phaseRef.current
 
     if (nameCount >= WARN_THRESHOLD && p === 'idle') {
-      // Cross 75 for the first time → start 60s warning
-      startTimer(TIME_WARN, 'warning')
-    } else if (nameCount >= CRITICAL_THRESHOLD && p === 'extended') {
-      // Cross 90 while in extended grace period → escalate to 30s
+      // Cross 80 → show Wait button (no timer yet)
+      phaseRef.current = 'pending'
+      setPhase('pending')
+    } else if (nameCount >= CRITICAL_THRESHOLD && p === 'counting') {
+      // Cross 90 while timer is running → escalate to 10s
       startTimer(TIME_CRITICAL, 'critical')
-    } else if (nameCount < WARN_THRESHOLD && (p === 'warning' || p === 'extended' || p === 'critical')) {
-      // User deleted names back below threshold → cancel and return to idle
+    } else if (nameCount < WARN_THRESHOLD &&
+               (p === 'pending' || p === 'counting' || p === 'critical')) {
+      // Dropped back below 80 (user deleted) → cancel
       stopTimer()
-      setPhase('idle')
       phaseRef.current = 'idle'
+      setPhase('idle')
       setCountdown(0)
     }
   }, [nameCount, startTimer, stopTimer])
@@ -64,23 +71,21 @@ export function useAutoWipe(nameCount) {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /** User clicked "Wait 5 mins" */
+  /** User clicks "Wait" — THIS is what actually starts the 5-min countdown */
   const handleWait = useCallback(() => {
-    if (phaseRef.current === 'warning') {
-      startTimer(TIME_EXTENDED, 'extended')
+    if (phaseRef.current === 'pending') {
+      startTimer(TIME_COUNTING, 'counting')
     }
   }, [startTimer])
 
-  /** Called by BlastAnimation when the animation finishes */
   const handleBlastComplete = useCallback(() => {
-    setPhase('congrats')
     phaseRef.current = 'congrats'
+    setPhase('congrats')
   }, [])
 
-  /** Called when the congrats screen is dismissed */
   const handleCongratsClose = useCallback(() => {
-    setPhase('idle')
     phaseRef.current = 'idle'
+    setPhase('idle')
     setCountdown(0)
   }, [])
 
@@ -90,6 +95,6 @@ export function useAutoWipe(nameCount) {
     handleWait,
     handleBlastComplete,
     handleCongratsClose,
-    isWarning: ['warning', 'extended', 'critical'].includes(phase),
+    isWarning: ['pending', 'counting', 'critical'].includes(phase),
   }
 }

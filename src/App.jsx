@@ -75,9 +75,7 @@ export default function App() {
     ? `${mins}:${secs.toString().padStart(2, '0')}`
     : `${countdown}s`
 
-  const timerClass = phase === 'critical' ? styles.timerCritical
-    : phase === 'extended' ? styles.timerExtended
-    : styles.timerWarn
+  const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
@@ -91,7 +89,7 @@ export default function App() {
             <span
               className={`${styles.count} ${
                 names.length >= 90 ? styles.countCritical :
-                names.length >= 75 ? styles.countWarn : ''}`}
+                names.length >= 80 ? styles.countWarn : ''}`}
               aria-live="polite"
             >
               {names.length}
@@ -100,18 +98,18 @@ export default function App() {
         </div>
 
         <div className={styles.actions}>
-          {/* ── Inline countdown (replaces blocking overlay) ── */}
-          {isWarning && (
-            <>
-              <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
-                💣 {timeStr}
-              </span>
-              {phase === 'warning' && (
-                <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
-                  Wait 5 min
-                </button>
-              )}
-            </>
+          {/* ── pending: only show Wait button, no timer yet ── */}
+          {phase === 'pending' && (
+            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
+              ⏸ Wait
+            </button>
+          )}
+
+          {/* ── counting / critical: show timer badge, no Wait button ── */}
+          {(phase === 'counting' || phase === 'critical') && (
+            <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
+              💣 {timeStr}
+            </span>
           )}
 
           <button
