@@ -5,7 +5,7 @@ const COLS = 5
 const ROWS = 20
 const PAGE = COLS * ROWS   // 100 names per grid block
 
-export default function NameGrid({ names, tags, onRemove, onEdit, onTagCycle }) {
+export default function NameGrid({ names, tags, onRemove, onEdit, onTagSet }) {
   const numPages = Math.max(1, Math.ceil(names.length / PAGE))
   const overflow = names.length > PAGE
 
@@ -32,7 +32,7 @@ export default function NameGrid({ names, tags, onRemove, onEdit, onTagCycle }) 
                   tag={tags[name] ?? null}
                   onRemove={onRemove}
                   onEdit={onEdit}
-                  onTagCycle={onTagCycle}
+                  onTagSet={onTagSet}
                 />
               ) : (
                 <div
