@@ -4,11 +4,8 @@
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  max-width: 1200px;
-  margin: 0 auto;
-  width: 100%;
-  padding: 10px 20px 12px;
-  gap: 8px;
+  padding: 8px 12px 10px;
+  gap: 7px;
 }
 
 /* ─── Header ─── */
@@ -16,87 +13,104 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-subtle);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .brandIcon {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
 .title {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-
-.subtitle {
-  font-size: 10px;
-  font-weight: 400;
-  color: var(--text-muted);
-  margin-top: 1px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  letter-spacing: -0.01em;
 }
 
 .count {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: 99px;
-  padding: 3px 10px;
+  padding: 2px 8px;
 }
 
-.clearBtn {
+/* ─── Action buttons ─── */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionBtn {
   font-family: var(--font-main);
   font-size: 12px;
   font-weight: 500;
-  color: var(--danger);
-  background: var(--danger-soft);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
-  padding: 5px 14px;
+  padding: 5px 12px;
   cursor: pointer;
-  transition: background var(--transition), border-color var(--transition), opacity var(--transition);
+  transition: background var(--transition), color var(--transition),
+              border-color var(--transition), opacity var(--transition);
+  white-space: nowrap;
 }
 
-.clearBtn:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.18);
-  border-color: rgba(239, 68, 68, 0.4);
+.actionBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
-.clearBtn:disabled {
+.actionBtn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
 }
 
-/* ─── Input row ─── */
+/* Copied state */
+.copied {
+  color: #34d399 !important;
+  border-color: rgba(52, 211, 153, 0.3) !important;
+  background: rgba(52, 211, 153, 0.08) !important;
+}
+
+/* Danger variant */
+.danger {
+  color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.2);
+  background: var(--danger-soft);
+}
+
+.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--danger);
+}
+
+/* Lock button */
+.lock {
+  padding: 5px 8px;
+  font-size: 14px;
+}
+
+/* ─── Input section ─── */
 .inputSection {
   flex-shrink: 0;
 }
 
-/* ─── Grid fills ALL remaining space ─── */
+/* ─── Grid fills all remaining space ─── */
 .gridSection {
   flex: 1;
-  min-height: 0;      /* critical: allow flex child to shrink */
+  min-height: 0;
   overflow: hidden;
 }
