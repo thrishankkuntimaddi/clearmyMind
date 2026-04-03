@@ -3,7 +3,7 @@ import { TAG_MAP } from '../hooks/useTags.js'
 import TagPicker from './TagPicker.jsx'
 import styles from './NameCell.module.css'
 
-export default function NameCell({ index, name, tag, dimmed, onEdit, onRemove, onTagSet }) {
+export default function NameCell({ index, name, tag, dimmed, picked, onEdit, onRemove, onTagSet }) {
   const [hovered,    setHovered]    = useState(false)
   const [editing,    setEditing]    = useState(false)
   const [draft,      setDraft]      = useState('')
@@ -73,7 +73,7 @@ export default function NameCell({ index, name, tag, dimmed, onEdit, onRemove, o
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div
-      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''}`}
+      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''} ${picked ? styles.picked : ''}`}
       style={tagColor ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` } : {}}
       role="listitem"
       onMouseEnter={() => setHovered(true)}

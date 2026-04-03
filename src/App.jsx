@@ -12,6 +12,14 @@ import LoadModal from './components/LoadModal.jsx'
 import TagFilterBar from './components/TagFilterBar.jsx'
 import styles from './App.module.css'
 
+// ─── Pick 3 unique indices from [1..n] ────────────────────────────────────────
+function pickThree(n) {
+  if (n < 3) return new Set()
+  const picks = new Set()
+  while (picks.size < 3) picks.add(Math.floor(Math.random() * n) + 1)
+  return picks
+}
+
 export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────────────
   const { status, attemptsLeft, biometricAvailable,
@@ -64,6 +72,14 @@ export default function App() {
       hasBlasted.current = false
     }
   }, [phase])   // eslint-disable-line — intentionally omit names/clearAll
+
+  // ─── Random Pick 3 ───────────────────────────────────────────────────────
+  const [randomPicks, setRandomPicks] = useState(() => new Set())
+  const pickRandom = useCallback(() => {
+    setRandomPicks(pickThree(names.length))
+  }, [names.length])
+  // Clear picks when names change dramatically
+  useEffect(() => { setRandomPicks(new Set()) }, [names.length])
 
   // ─── Copy ────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
@@ -173,6 +189,18 @@ export default function App() {
           <NameInput onAdd={addName} />
         </div>
 
+        {/* 🎲 Random Pick 3 button — sits between input and actions */}
+        <button
+          id="pick3-btn"
+          className={`${styles.pick3Btn} ${randomPicks.size > 0 ? styles.pick3Active : ''}`}
+          onClick={pickRandom}
+          disabled={names.length < 3}
+          title={names.length < 3 ? 'Need at least 3 names' : 'Pick 3 random names'}
+          aria-label="Pick 3 random names"
+        >
+          🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a,b)=>a-b).join(', ')}` : 'Pick 3'}
+        </button>
+
         <div className={styles.actions}>
           {/* ── NoClear toggle ── */}
           <button
@@ -242,6 +270,7 @@ export default function App() {
         <NameGrid
           names={names}
           tags={tags}
+          randomPicks={randomPicks}
           onRemove={removeName}
           onEdit={editName}
           onTagSet={setTag}

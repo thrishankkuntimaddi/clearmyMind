@@ -278,3 +278,46 @@
   border-color: rgba(52, 211, 153, 0.5) !important;
   color: #6ee7b7 !important;
 }
+
+/* ─── 🎲 Pick 3 random button ─── */
+.pick3Btn {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition), color var(--transition),
+              border-color var(--transition), box-shadow var(--transition);
+  letter-spacing: 0.01em;
+}
+
+.pick3Btn:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+}
+
+.pick3Btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Active state — showing the 3 picked numbers */
+.pick3Active {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.4);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.15);
+}
+
+.pick3Active:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.18) !important;
+  border-color: rgba(251, 191, 36, 0.55) !important;
+  box-shadow: 0 0 16px rgba(251, 191, 36, 0.25) !important;
+}
+

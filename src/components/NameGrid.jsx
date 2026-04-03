@@ -5,7 +5,7 @@ const COLS = 5
 const ROWS = 20
 const PAGE = COLS * ROWS   // 100 names per grid block
 
-export default function NameGrid({ names, tags, onRemove, onEdit, onTagSet }) {
+export default function NameGrid({ names, tags, randomPicks = new Set(), onRemove, onEdit, onTagSet }) {
   const numPages = Math.max(1, Math.ceil(names.length / PAGE))
   const overflow = names.length > PAGE
 
@@ -24,13 +24,15 @@ export default function NameGrid({ names, tags, onRemove, onEdit, onTagSet }) {
             role="list"
             aria-label={numPages > 1 ? `Name list — page ${pageIdx + 1}` : 'Name list'}
           >
-            {slots.map((name, cellIdx) =>
-              name !== null ? (
+            {slots.map((name, cellIdx) => {
+              const globalIdx = pageIdx * PAGE + cellIdx + 1
+              return name !== null ? (
                 <NameCell
                   key={name}
-                  index={pageIdx * PAGE + cellIdx + 1}
+                  index={globalIdx}
                   name={name}
                   tag={tags[name] ?? null}
+                  picked={randomPicks.has(globalIdx)}
                   onRemove={onRemove}
                   onEdit={onEdit}
                   onTagSet={onTagSet}
@@ -42,7 +44,7 @@ export default function NameGrid({ names, tags, onRemove, onEdit, onTagSet }) {
                   aria-hidden="true"
                 />
               )
-            )}
+            })}
           </div>
         )
       })}
