@@ -23,7 +23,7 @@ function pickThree(n) {
 export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────────────
   const { status, attemptsLeft, biometricAvailable,
-    setupPassword, login, loginBiometric, lock } = useAuth()
+    setupPassword, login, loginBiometric, lock, noLock, toggleNoLock } = useAuth()
 
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
@@ -78,8 +78,51 @@ export default function App() {
   const pickRandom = useCallback(() => {
     setRandomPicks(pickThree(names.length))
   }, [names.length])
-  // Clear picks when names change dramatically
+  // Clear picks when names count changes
   useEffect(() => { setRandomPicks(new Set()) }, [names.length])
+  // Auto-clear picks after 10 seconds
+  useEffect(() => {
+    if (randomPicks.size === 0) return
+    const t = setTimeout(() => setRandomPicks(new Set()), 10000)
+    return () => clearTimeout(t)
+  }, [randomPicks])
+
+  // ─── Cmd+Z Undo last-added name ──────────────────────────────────────────
+  const lastAdded  = useRef(null)    // most recently added name
+  const nameInputRef = useRef(null)  // imperative handle to NameInput
+
+  // Wrap addName to track last added
+  const addNameTracked = useCallback((raw) => {
+    const { toTitleCase } = { toTitleCase: (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase()) }
+    const formatted = toTitleCase(raw)
+    const ok = addName(raw)
+    if (ok) lastAdded.current = formatted
+    return ok
+  }, [addName])
+
+  useEffect(() => {
+    if (status !== 'unlocked') return
+    function handleUndo(e) {
+      const isMac  = navigator.platform.toUpperCase().includes('MAC')
+      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey
+      if (!isUndo) return
+      // Only undo if the input is focused or nothing is focused
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') {
+        // If the input itself has content still, let browser handle native undo
+        const inputEl = document.getElementById('name-input')
+        if (inputEl && inputEl.value.length > 0) return
+      }
+      if (!lastAdded.current) return
+      e.preventDefault()
+      const name = lastAdded.current
+      lastAdded.current = null
+      removeName(name)
+      nameInputRef.current?.restoreName(name)
+    }
+    document.addEventListener('keydown', handleUndo)
+    return () => document.removeEventListener('keydown', handleUndo)
+  }, [status, removeName])
 
   // ─── Copy ────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
@@ -186,7 +229,7 @@ export default function App() {
 
         {/* Input lives in the header, grows to fill the middle */}
         <div className={styles.headerInput}>
-          <NameInput onAdd={addName} />
+          <NameInput ref={nameInputRef} onAdd={addNameTracked} />
         </div>
 
         {/* 🎲 Random Pick 3 button — sits between input and actions */}
@@ -261,6 +304,17 @@ export default function App() {
             title="Lock"
           >
             🔒
+          </button>
+
+          {/* ── NoLock toggle — prevents auto-lock on tab switch ── */}
+          <button
+            id="nolock-btn"
+            className={`${styles.noLockBtn} ${noLock ? styles.noLockActive : ''}`}
+            onClick={toggleNoLock}
+            title={noLock ? 'NoLock ON — auto-locking disabled (30 min). Click to re-enable.' : 'NoLock OFF — tap to stay unlocked when switching tabs'}
+            aria-label={noLock ? 'NoLock active' : 'Enable NoLock'}
+          >
+            {noLock ? '🛡️ NoLock' : '🔓 NoLock'}
           </button>
         </div>
       </header>

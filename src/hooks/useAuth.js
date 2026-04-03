@@ -7,32 +7,53 @@ import {
   clearBiometric,
 } from '../utils/crypto.js'
 
-const HASH_KEY  = 'clearmind_password_hash'
-const NAMES_KEY = 'clearmind_names'
+const HASH_KEY      = 'clearmind_password_hash'
+const NAMES_KEY     = 'clearmind_names'
 const MAX_ATTEMPTS  = 3
-const LOCK_DELAY_MS = 15000 // 15 s after tab is hidden
+const LOCK_DELAY_MS = 15000        // 15 s after tab is hidden
+const NOLOCK_TTL_MS = 30 * 60000  // 30 min NoLock auto-expires
 
 function getStoredHash() {
   return localStorage.getItem(HASH_KEY)
 }
 
 export function useAuth() {
-  const [status, setStatus]           = useState(() => getStoredHash() ? 'locked' : 'setup')
+  const [status, setStatus]             = useState(() => getStoredHash() ? 'locked' : 'setup')
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricReady, setBiometricReady] = useState(false)
-  const lockTimer = useRef(null)
+  const [noLock, setNoLock]             = useState(false)
+
+  const lockTimer   = useRef(null)
+  const noLockTimer = useRef(null)  // 30-min auto-expire for NoLock
 
   // Check biometric once on mount
   useEffect(() => {
     isBiometricAvailable().then(setBiometricReady)
   }, [])
 
-  // Lock after 15 s of tab being hidden
+  // ─── NoLock toggle — suppresses visibility-change locking ─────────────────
+  const toggleNoLock = useCallback(() => {
+    setNoLock(prev => {
+      const next = !prev
+      clearTimeout(noLockTimer.current)
+      if (next) {
+        // Auto-disable after 30 min
+        noLockTimer.current = setTimeout(() => setNoLock(false), NOLOCK_TTL_MS)
+      }
+      return next
+    })
+  }, [])
+
+  // Clear noLock timer on unmount
+  useEffect(() => () => clearTimeout(noLockTimer.current), [])
+
+  // ─── Lock after 15 s of tab being hidden (unless NoLock is ON) ────────────
   useEffect(() => {
     if (status !== 'unlocked') return
 
     function onVisibilityChange() {
       if (document.hidden) {
+        if (noLock) return           // NoLock suppresses auto-lock
         lockTimer.current = setTimeout(() => setStatus('locked'), LOCK_DELAY_MS)
       } else {
         clearTimeout(lockTimer.current)
@@ -44,7 +65,7 @@ export function useAuth() {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       clearTimeout(lockTimer.current)
     }
-  }, [status])
+  }, [status, noLock])
 
   // ─── Setup (first time) ───────────────────────────────────────────────────
   const setupPassword = useCallback(async (password) => {
@@ -94,6 +115,8 @@ export function useAuth() {
   // ─── Manual lock ─────────────────────────────────────────────────────────
   const lock = useCallback(() => {
     clearTimeout(lockTimer.current)
+    clearTimeout(noLockTimer.current)
+    setNoLock(false)
     setStatus('locked')
   }, [])
 
@@ -101,6 +124,8 @@ export function useAuth() {
     status,                                                 // 'setup' | 'locked' | 'unlocked'
     attemptsLeft,
     biometricAvailable: biometricReady && status === 'locked',
+    noLock,
+    toggleNoLock,
     setupPassword,
     login,
     loginBiometric,

@@ -1,14 +1,21 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useImperativeHandle, forwardRef } from 'react'
 import styles from './NameInput.module.css'
 
-export default function NameInput({ onAdd }) {
+// Expose a restoreName(name) method via ref so App can put a name back
+const NameInput = forwardRef(function NameInput({ onAdd }, ref) {
   const [value, setValue] = useState('')
   const [shake, setShake] = useState(false)
   const inputRef = useRef(null)
 
+  // Let App call restoreName(name) to put a name back into the field
+  useImperativeHandle(ref, () => ({
+    restoreName(name) {
+      setValue(name)
+      inputRef.current?.focus()
+    }
+  }), [])
+
   // ─── Global key capture ───────────────────────────────────────────────────
-  // Any printable keystroke on the page auto-focuses the input so typing
-  // works immediately without needing to click the field first.
   useEffect(() => {
     function handleGlobalKeyDown(e) {
       // If ANY input or textarea is active, don't interfere
@@ -58,4 +65,6 @@ export default function NameInput({ onAdd }) {
       />
     </div>
   )
-}
+})
+
+export default NameInput
