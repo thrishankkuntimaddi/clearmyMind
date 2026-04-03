@@ -9,90 +9,79 @@ import {
 
 const HASH_KEY      = 'clearmind_password_hash'
 const NAMES_KEY     = 'clearmind_names'
-const NOLOCK_KEY    = 'clearmind_nolock_expiry'  // stores expiry epoch ms
+const NOLOCK_KEY    = 'clearmind_nolock'   // '1' = on, '0' = off
 const MAX_ATTEMPTS  = 3
-const LOCK_DELAY_MS = 15000        // 15 s after tab is hidden
-const NOLOCK_TTL_MS = 30 * 60000  // 30 min NoLock auto-expires
+const LOCK_DELAY_MS = 15000        // 15 s after tab hidden before locking
+const NOLOCK_TTL_MS = 30 * 60000  // 30 min — then NoLock auto-disables
 
-// ─── NoLock localStorage helpers ─────────────────────────────────────────────
-function readNoLock() {
-  try {
-    const ts = Number(localStorage.getItem(NOLOCK_KEY))
-    if (ts && Date.now() < ts) return true     // within 30-min window
-  } catch { /**/ }
-  return false
-}
-
-function writeNoLock(enabled) {
-  if (enabled) {
-    localStorage.setItem(NOLOCK_KEY, String(Date.now() + NOLOCK_TTL_MS))
-  } else {
-    localStorage.removeItem(NOLOCK_KEY)
-  }
-}
-
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function getStoredHash() {
   return localStorage.getItem(HASH_KEY)
+}
+
+// Read saved NoLock preference ('1' = on, anything else / missing = off by default ON first time)
+function readNoLockPref() {
+  const val = localStorage.getItem(NOLOCK_KEY)
+  if (val === null) {
+    // First ever launch → default to ON, save it
+    localStorage.setItem(NOLOCK_KEY, '1')
+    return true
+  }
+  return val === '1'
+}
+
+function saveNoLockPref(enabled) {
+  localStorage.setItem(NOLOCK_KEY, enabled ? '1' : '0')
 }
 
 export function useAuth() {
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricReady, setBiometricReady] = useState(false)
 
-  // ── NoLock: compute first so status init can use it ─────────────────────
-  const [noLock, setNoLock] = useState(() => {
-    const persisted = readNoLock()
-    if (!persisted) {
-      // First time ever (no key stored at all) → default to ON
-      const hasKey = localStorage.getItem(NOLOCK_KEY) !== null
-      if (!hasKey) { writeNoLock(true); return true }
-    }
-    return persisted
-  })
+  // ── NoLock preference: remembers ON/OFF across refreshes ─────────────────
+  // Does NOT bypass login on refresh — only controls tab-switch locking
+  const [noLock, setNoLock] = useState(() => readNoLockPref())
 
-  // ── Status: if NoLock is active, bypass lock screen on refresh ───────────
-  const [status, setStatus] = useState(() => {
-    if (!getStoredHash()) return 'setup'
-    // NoLock still within its 30-min window → stay unlocked across refresh
-    if (readNoLock()) return 'unlocked'
-    return 'locked'
-  })
+  // ── Status: refresh ALWAYS requires password when a hash exists ───────────
+  const [status, setStatus] = useState(() => getStoredHash() ? 'locked' : 'setup')
 
   const lockTimer   = useRef(null)
-  const noLockTimer = useRef(null)  // 30-min auto-expire for NoLock
+  const noLockTimer = useRef(null)  // in-memory 30-min auto-expire
 
   // Check biometric once on mount
   useEffect(() => {
     isBiometricAvailable().then(setBiometricReady)
   }, [])
 
-  // ─── NoLock toggle — suppresses visibility-change locking ─────────────────
+  // ─── Start 30-min timer when NoLock is ON after login ─────────────────────
+  // This runs in-memory only — when it fires it turns NoLock OFF and saves '0'
+  useEffect(() => {
+    clearTimeout(noLockTimer.current)
+    if (noLock && status === 'unlocked') {
+      noLockTimer.current = setTimeout(() => {
+        setNoLock(false)
+        saveNoLockPref(false)
+      }, NOLOCK_TTL_MS)
+    }
+    return () => clearTimeout(noLockTimer.current)
+  }, [noLock, status])
+
+  // ─── NoLock toggle ─────────────────────────────────────────────────────────
   const toggleNoLock = useCallback(() => {
     setNoLock(prev => {
       const next = !prev
-      clearTimeout(noLockTimer.current)
-      writeNoLock(next)    // persist to localStorage
-      if (next) {
-        // Auto-disable after 30 min
-        noLockTimer.current = setTimeout(() => {
-          setNoLock(false)
-          writeNoLock(false)
-        }, NOLOCK_TTL_MS)
-      }
+      saveNoLockPref(next)
       return next
     })
   }, [])
 
-  // Clear noLock timer on unmount
-  useEffect(() => () => clearTimeout(noLockTimer.current), [])
-
-  // ─── Lock after 15 s of tab being hidden (unless NoLock is ON) ────────────
+  // ─── Auto-lock after 15 s of tab hidden (only when NoLock is OFF) ─────────
   useEffect(() => {
     if (status !== 'unlocked') return
 
     function onVisibilityChange() {
       if (document.hidden) {
-        if (noLock) return           // NoLock suppresses auto-lock
+        if (noLock) return                // NoLock suppresses auto-lock
         lockTimer.current = setTimeout(() => setStatus('locked'), LOCK_DELAY_MS)
       } else {
         clearTimeout(lockTimer.current)
@@ -112,7 +101,6 @@ export function useAuth() {
     localStorage.setItem(HASH_KEY, hash)
     setStatus('unlocked')
     setAttemptsLeft(MAX_ATTEMPTS)
-    // Silently try biometric registration — ignore failures
     if (biometricReady) await registerBiometric()
   }, [biometricReady])
 
@@ -129,7 +117,6 @@ export function useAuth() {
     setAttemptsLeft(next)
 
     if (next <= 0) {
-      // Wipe everything and reset
       localStorage.removeItem(HASH_KEY)
       localStorage.removeItem(NAMES_KEY)
       clearBiometric()
@@ -155,13 +142,12 @@ export function useAuth() {
   const lock = useCallback(() => {
     clearTimeout(lockTimer.current)
     clearTimeout(noLockTimer.current)
-    setNoLock(false)
-    writeNoLock(false)   // clear persisted NoLock on manual lock
     setStatus('locked')
+    // Note: does NOT change noLock preference — user preference stays as-is
   }, [])
 
   return {
-    status,                                                 // 'setup' | 'locked' | 'unlocked'
+    status,
     attemptsLeft,
     biometricAvailable: biometricReady && status === 'locked',
     noLock,
