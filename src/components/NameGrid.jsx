@@ -28,6 +28,7 @@ export default function NameGrid({ names, tags, onRemove, onEdit, onTagSet }) {
               name !== null ? (
                 <NameCell
                   key={name}
+                  index={pageIdx * PAGE + cellIdx + 1}
                   name={name}
                   tag={tags[name] ?? null}
                   onRemove={onRemove}
