@@ -36,18 +36,26 @@ function getStoredHash() {
 }
 
 export function useAuth() {
-  const [status, setStatus]             = useState(() => getStoredHash() ? 'locked' : 'setup')
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricReady, setBiometricReady] = useState(false)
-  // Default ON — read persisted expiry from localStorage
-  const [noLock, setNoLock]             = useState(() => {
+
+  // ── NoLock: compute first so status init can use it ─────────────────────
+  const [noLock, setNoLock] = useState(() => {
     const persisted = readNoLock()
     if (!persisted) {
-      // First time ever (no key) → default to ON, save expiry
+      // First time ever (no key stored at all) → default to ON
       const hasKey = localStorage.getItem(NOLOCK_KEY) !== null
       if (!hasKey) { writeNoLock(true); return true }
     }
     return persisted
+  })
+
+  // ── Status: if NoLock is active, bypass lock screen on refresh ───────────
+  const [status, setStatus] = useState(() => {
+    if (!getStoredHash()) return 'setup'
+    // NoLock still within its 30-min window → stay unlocked across refresh
+    if (readNoLock()) return 'unlocked'
+    return 'locked'
   })
 
   const lockTimer   = useRef(null)
