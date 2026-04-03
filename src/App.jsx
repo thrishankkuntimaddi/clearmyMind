@@ -94,6 +94,9 @@ export default function App() {
     if (status !== 'unlocked') return
 
     function handlePaste(e) {
+      // If the Load modal is open, let the textarea inside it handle paste natively
+      if (showLoadModal) return
+
       const text = e.clipboardData?.getData('text/plain') ?? ''
       const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
@@ -113,7 +116,7 @@ export default function App() {
 
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [status, addName])
+  }, [status, addName, showLoadModal])
 
   // ─── Auth screens ─────────────────────────────────────────────────────────
   if (status === 'setup' || status === 'locked') {
