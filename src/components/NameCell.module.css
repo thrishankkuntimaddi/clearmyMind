@@ -138,6 +138,34 @@
   opacity: 0.25;
 }
 
+/* ─── Drag handle (appears on hover) ─── */
+.dragHandle {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0.4;
+  cursor: grab;
+  user-select: none;
+  line-height: 1;
+  transition: opacity var(--transition);
+}
+
+.cell:hover .dragHandle {
+  opacity: 0.65;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+/* ─── While being dragged ─── */
+.dragging {
+  opacity: 0.4;
+  border-left-color: rgba(99, 102, 241, 0.6) !important;
+  background: rgba(99, 102, 241, 0.05) !important;
+}
+
+
 /* ─── Picked by random draw ─── */
 @keyframes pickedPulse {
   0%   { box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.4), 0 0 8px rgba(251, 191, 36, 0.2); }

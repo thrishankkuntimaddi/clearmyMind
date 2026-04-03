@@ -3,9 +3,11 @@ import { useNames } from './hooks/useNames.js'
 import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useTags } from './hooks/useTags.js'
+import { useBag } from './hooks/useBag.js'
 import AuthScreen from './components/AuthScreen.jsx'
 import NameInput from './components/NameInput.jsx'
 import NameGrid from './components/NameGrid.jsx'
+import Bag from './components/Bag.jsx'
 import BlastAnimation from './components/BlastAnimation.jsx'
 import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
@@ -28,11 +30,23 @@ export default function App() {
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
   const { setTag, renameTag, removeTag, clearTags, tags } = useTags()
+  const { bag, addToBag, removeFromBag, clearBag } = useBag()
 
   // Wrap edit/remove/clearAll to keep tags in sync
   const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next) }, [editNameBase, renameTag])
   const removeName = useCallback((name) => { removeNameBase(name); removeTag(name) }, [removeNameBase, removeTag])
   const clearAll = useCallback(() => { clearAllBase(); clearTags() }, [clearAllBase, clearTags])
+
+  // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
+  const moveToBag = useCallback((name) => {
+    removeName(name)
+    addToBag(name)
+  }, [removeName, addToBag])
+
+  const restoreFromBag = useCallback((name) => {
+    removeFromBag(name)
+    addName(name)
+  }, [removeFromBag, addName])
 
   const prevStatus = useRef(status)
   useEffect(() => {
@@ -319,17 +333,27 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Grid ── */}
-      <section className={styles.gridSection} aria-label="Name list">
-        <NameGrid
-          names={names}
-          tags={tags}
-          randomPicks={randomPicks}
-          onRemove={removeName}
-          onEdit={editName}
-          onTagSet={setTag}
+      {/* ── Content row: Grid + Bag side by side ── */}
+      <div className={styles.contentRow}>
+        <section className={styles.gridSection} aria-label="Name list">
+          <NameGrid
+            names={names}
+            tags={tags}
+            randomPicks={randomPicks}
+            onRemove={removeName}
+            onEdit={editName}
+            onTagSet={setTag}
+          />
+        </section>
+
+        <Bag
+          bag={bag}
+          onDrop={moveToBag}
+          onRestore={restoreFromBag}
+          onRemove={removeFromBag}
+          onClear={clearBag}
         />
-      </section>
+      </div>
 
       {/* ── Paste-restore toast ── */}
       {restored > 0 && (

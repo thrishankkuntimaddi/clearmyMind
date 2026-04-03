@@ -1,0 +1,231 @@
+/* ─── Bag sidebar panel ─── */
+.bag {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.012);
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+  overflow: hidden;
+}
+
+/* ─── Drag-over active state ─── */
+.dragOver {
+  background: rgba(99, 102, 241, 0.06);
+  border-left-color: rgba(99, 102, 241, 0.45);
+  box-shadow: inset 2px 0 16px rgba(99, 102, 241, 0.08);
+}
+
+/* ─── Header ─── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.icon {
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+  letter-spacing: 0.02em;
+}
+
+.count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 99px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+/* ─── Drop hint overlay ─── */
+.dropHint {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(129, 140, 248, 0.9);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.dropIcon {
+  font-size: 32px;
+  line-height: 1;
+  animation: bounce 0.6s ease-in-out infinite alternate;
+}
+
+@keyframes bounce {
+  from { transform: translateY(-4px); }
+  to   { transform: translateY(4px); }
+}
+
+/* ─── Empty state ─── */
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--text-muted);
+  opacity: 0.35;
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.5;
+  padding: 16px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.emptyIcon {
+  font-size: 30px;
+  line-height: 1;
+}
+
+/* ─── List ─── */
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+}
+
+/* ─── Bag item ─── */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  transition: background var(--transition);
+  min-width: 0;
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.itemNum {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0.5;
+  min-width: 14px;
+  text-align: right;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.itemName {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ─── Item actions (hidden until hover) ─── */
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.item:hover .itemActions {
+  opacity: 1;
+}
+
+.restoreBtn,
+.removeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  transition: color var(--transition), background var(--transition);
+}
+
+.restoreBtn {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.restoreBtn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.removeBtn {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.removeBtn:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* ─── Footer ─── */
+.footer {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-default);
+  flex-shrink: 0;
+}
+
+.clearBtn {
+  width: 100%;
+  font-family: var(--font-main);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 5px 0;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.clearBtn:hover {
+  background: rgba(239, 68, 68, 0.14);
+  border-color: rgba(239, 68, 68, 0.35);
+}

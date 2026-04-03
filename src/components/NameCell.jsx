@@ -9,6 +9,7 @@ export default function NameCell({ index, name, tag, dimmed, picked, onEdit, onR
   const [draft,      setDraft]      = useState('')
   const [removing,   setRemoving]   = useState(false)
   const [showPicker, setShowPicker] = useState(false)
+  const [dragging,   setDragging]   = useState(false)
 
   const editRef   = useRef(null)
   const committed = useRef(false)
@@ -49,6 +50,18 @@ export default function NameCell({ index, name, tag, dimmed, picked, onEdit, onR
     setTimeout(() => onRemove(name), 200)
   }
 
+  // ── Drag handlers ──────────────────────────────────────────────────────────
+  function handleDragStart(e) {
+    e.dataTransfer.setData('text/plain', name)
+    e.dataTransfer.effectAllowed = 'move'
+    setDragging(true)
+    setShowPicker(false)
+  }
+
+  function handleDragEnd() {
+    setDragging(false)
+  }
+
   // ── Edit mode ──────────────────────────────────────────────────────────────
   if (editing) {
     return (
@@ -73,9 +86,12 @@ export default function NameCell({ index, name, tag, dimmed, picked, onEdit, onR
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div
-      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''} ${picked ? styles.picked : ''}`}
+      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''} ${picked ? styles.picked : ''} ${dragging ? styles.dragging : ''}`}
       style={tagColor ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` } : {}}
       role="listitem"
+      draggable
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => { setHovered(false); setShowPicker(false) }}
       onClick={() => setShowPicker(p => !p)}
@@ -84,6 +100,11 @@ export default function NameCell({ index, name, tag, dimmed, picked, onEdit, onR
       <span className={styles.index}>{index}</span>
 
       <span className={styles.name} title={name}>{name}</span>
+
+      {/* Drag handle — shows on hover */}
+      {hovered && !showPicker && (
+        <span className={styles.dragHandle} title="Drag to bag" aria-hidden="true">⠿</span>
+      )}
 
       {hovered && !showPicker && (
         <div className={styles.btnGroup} onClick={e => e.stopPropagation()}>

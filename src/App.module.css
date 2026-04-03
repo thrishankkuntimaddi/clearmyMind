@@ -212,13 +212,22 @@
   justify-content: center;
 }
 
-/* ─── Grid fills all remaining space ─── */
+/* ─── Content row: grid + bag side by side ─── */
+.contentRow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+/* ─── Grid fills all remaining space in contentRow ─── */
 .gridSection {
   flex: 1;
   min-height: 0;
-  display: flex;       /* wrapper inside is flex column */
+  display: flex;
   flex-direction: column;
-  overflow: hidden;    /* inner .wrapper handles its own scroll */
+  overflow: hidden;
 }
 
 /* ─── Paste-restore toast ─── */
