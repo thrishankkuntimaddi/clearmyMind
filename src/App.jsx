@@ -83,7 +83,7 @@ export default function App() {
   // Auto-clear picks after 10 seconds
   useEffect(() => {
     if (randomPicks.size === 0) return
-    const t = setTimeout(() => setRandomPicks(new Set()), 10000)
+    const t = setTimeout(() => setRandomPicks(new Set()), 5000)
     return () => clearTimeout(t)
   }, [randomPicks])
 
