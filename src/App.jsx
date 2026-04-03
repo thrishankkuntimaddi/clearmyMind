@@ -63,10 +63,13 @@ export default function App() {
     prevStatus.current = status
   }, [status, reloadFromStorage])
 
-  // ─── NoClear mode ────────────────────────────────────────────────────────
-  const [noClear, setNoClear] = useState(
-    () => localStorage.getItem('clearmind_noclear') === '1'
-  )
+  // ─── NoClear mode (default ON) ───────────────────────────────────────────
+  const [noClear, setNoClear] = useState(() => {
+    const stored = localStorage.getItem('clearmind_noclear')
+    // If never set before, default to ON
+    if (stored === null) { localStorage.setItem('clearmind_noclear', '1'); return true }
+    return stored === '1'
+  })
   const toggleNoClear = useCallback(() => {
     setNoClear(prev => {
       const next = !prev

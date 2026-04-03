@@ -9,9 +9,27 @@ import {
 
 const HASH_KEY      = 'clearmind_password_hash'
 const NAMES_KEY     = 'clearmind_names'
+const NOLOCK_KEY    = 'clearmind_nolock_expiry'  // stores expiry epoch ms
 const MAX_ATTEMPTS  = 3
 const LOCK_DELAY_MS = 15000        // 15 s after tab is hidden
 const NOLOCK_TTL_MS = 30 * 60000  // 30 min NoLock auto-expires
+
+// ─── NoLock localStorage helpers ─────────────────────────────────────────────
+function readNoLock() {
+  try {
+    const ts = Number(localStorage.getItem(NOLOCK_KEY))
+    if (ts && Date.now() < ts) return true     // within 30-min window
+  } catch { /**/ }
+  return false
+}
+
+function writeNoLock(enabled) {
+  if (enabled) {
+    localStorage.setItem(NOLOCK_KEY, String(Date.now() + NOLOCK_TTL_MS))
+  } else {
+    localStorage.removeItem(NOLOCK_KEY)
+  }
+}
 
 function getStoredHash() {
   return localStorage.getItem(HASH_KEY)
@@ -21,7 +39,16 @@ export function useAuth() {
   const [status, setStatus]             = useState(() => getStoredHash() ? 'locked' : 'setup')
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricReady, setBiometricReady] = useState(false)
-  const [noLock, setNoLock]             = useState(false)
+  // Default ON — read persisted expiry from localStorage
+  const [noLock, setNoLock]             = useState(() => {
+    const persisted = readNoLock()
+    if (!persisted) {
+      // First time ever (no key) → default to ON, save expiry
+      const hasKey = localStorage.getItem(NOLOCK_KEY) !== null
+      if (!hasKey) { writeNoLock(true); return true }
+    }
+    return persisted
+  })
 
   const lockTimer   = useRef(null)
   const noLockTimer = useRef(null)  // 30-min auto-expire for NoLock
@@ -36,9 +63,13 @@ export function useAuth() {
     setNoLock(prev => {
       const next = !prev
       clearTimeout(noLockTimer.current)
+      writeNoLock(next)    // persist to localStorage
       if (next) {
         // Auto-disable after 30 min
-        noLockTimer.current = setTimeout(() => setNoLock(false), NOLOCK_TTL_MS)
+        noLockTimer.current = setTimeout(() => {
+          setNoLock(false)
+          writeNoLock(false)
+        }, NOLOCK_TTL_MS)
       }
       return next
     })
@@ -117,6 +148,7 @@ export function useAuth() {
     clearTimeout(lockTimer.current)
     clearTimeout(noLockTimer.current)
     setNoLock(false)
+    writeNoLock(false)   // clear persisted NoLock on manual lock
     setStatus('locked')
   }, [])
 

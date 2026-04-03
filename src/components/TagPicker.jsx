@@ -15,24 +15,29 @@ export default function TagPicker({ currentTag, onSelect, onClose }) {
 
   return (
     <div ref={ref} className={styles.picker} role="dialog" aria-label="Choose tag color">
-      {TAG_COLORS.map(({ key, hex, label }) => (
-        <button
-          key={key}
-          className={`${styles.dot} ${currentTag === key ? styles.active : ''}`}
-          style={{ '--c': hex }}
-          onClick={() => onSelect(currentTag === key ? null : key)}
-          title={label}
-          aria-label={label}
-        />
-      ))}
-      {currentTag && (
-        <button
-          className={styles.clear}
-          onClick={() => onSelect(null)}
-          title="Remove tag"
-          aria-label="Remove tag"
-        >✕</button>
-      )}
+      <div className={styles.dots}>
+        {TAG_COLORS.map(({ key, hex, label }) => (
+          <button
+            key={key}
+            className={`${styles.dot} ${currentTag === key ? styles.active : ''}`}
+            style={{ '--c': hex }}
+            onClick={() => onSelect(currentTag === key ? null : key)}
+            title={label}
+            aria-label={label}
+          />
+        ))}
+      </div>
+      {/* Divider + Remove Color button — always visible for discoverability */}
+      <span className={styles.sep} />
+      <button
+        className={`${styles.clear} ${!currentTag ? styles.clearDisabled : ''}`}
+        onClick={() => { if (currentTag) onSelect(null) }}
+        title={currentTag ? 'Remove color' : 'No color set'}
+        aria-label="Remove color"
+        disabled={!currentTag}
+      >
+        ✕ Remove Color
+      </button>
     </div>
   )
 }
