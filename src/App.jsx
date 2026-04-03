@@ -4,10 +4,12 @@ import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useTags } from './hooks/useTags.js'
 import { useBag } from './hooks/useBag.js'
+import { useGroups } from './hooks/useGroups.js'
 import AuthScreen from './components/AuthScreen.jsx'
 import NameInput from './components/NameInput.jsx'
 import NameGrid from './components/NameGrid.jsx'
 import Bag from './components/Bag.jsx'
+import Groups from './components/Groups.jsx'
 import BlastAnimation from './components/BlastAnimation.jsx'
 import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
@@ -31,10 +33,11 @@ export default function App() {
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
   const { setTag, renameTag, removeTag, clearTags, tags } = useTags()
   const { bag, addToBag, removeFromBag, clearBag } = useBag()
+  const { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups } = useGroups()
 
-  // Wrap edit/remove/clearAll to keep tags in sync
-  const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next) }, [editNameBase, renameTag])
-  const removeName = useCallback((name) => { removeNameBase(name); removeTag(name) }, [removeNameBase, removeTag])
+  // Wrap edit/remove/clearAll to keep tags + groups in sync
+  const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
+  const removeName = useCallback((name) => { removeNameBase(name); removeTag(name); removeNameFromAllGroups(name) }, [removeNameBase, removeTag, removeNameFromAllGroups])
   const clearAll = useCallback(() => { clearAllBase(); clearTags() }, [clearAllBase, clearTags])
 
   // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
@@ -47,6 +50,12 @@ export default function App() {
     removeFromBag(name)
     addName(name)
   }, [removeFromBag, addName])
+
+  // ─── Groups: active group for cell highlight ─────────────────────────────
+  const [activeGroupId, setActiveGroupId] = useState(null)
+  const highlightedNames = activeGroupId && groups[activeGroupId]
+    ? new Set(groups[activeGroupId].members)
+    : new Set()
 
   const prevStatus = useRef(status)
   useEffect(() => {
@@ -246,43 +255,24 @@ export default function App() {
           <NameInput ref={nameInputRef} onAdd={addNameTracked} />
         </div>
 
-        {/* 🎲 Random Pick 3 button — sits between input and actions */}
-        <button
-          id="pick3-btn"
-          className={`${styles.pick3Btn} ${randomPicks.size > 0 ? styles.pick3Active : ''}`}
-          onClick={pickRandom}
-          disabled={names.length < 3}
-          title={names.length < 3 ? 'Need at least 3 names' : 'Pick 3 random names'}
-          aria-label="Pick 3 random names"
-        >
-          🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a,b)=>a-b).join(', ')}` : 'Pick 3'}
-        </button>
-
+        {/* ─── Action buttons ─── */}
         <div className={styles.actions}>
-          {/* ── NoClear toggle ── */}
+
+          {/* Group 1: 🎲 Pick 3 */}
           <button
-            id="noclear-btn"
-            className={`${styles.noClearBtn} ${noClear ? styles.noClearActive : ''}`}
-            onClick={toggleNoClear}
-            title={noClear ? 'NoClear ON — click to re-enable auto-wipe' : 'NoClear OFF — click to disable auto-wipe'}
+            id="pick3-btn"
+            className={`${styles.pick3Btn} ${randomPicks.size > 0 ? styles.pick3Active : ''}`}
+            onClick={pickRandom}
+            disabled={names.length < 3}
+            title={names.length < 3 ? 'Need at least 3 names' : 'Pick 3 random'}
+            aria-label="Pick 3 random names"
           >
-            {noClear ? '✅ NoClear' : '⛔ NoClear'}
+            🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a,b)=>a-b).join(', ')}` : 'Pick 3'}
           </button>
 
-          {/* ── pending: only show Wait button, no timer yet ── */}
-          {phase === 'pending' && (
-            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
-              ⏸ Wait
-            </button>
-          )}
+          <span className={styles.btnDivider} />
 
-          {/* ── counting / critical: show timer badge, no Wait button ── */}
-          {(phase === 'counting' || phase === 'critical') && (
-            <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
-              💣 {timeStr}
-            </span>
-          )}
-
+          {/* Group 2: Data I/O */}
           <button
             id="copy-btn"
             className={`${styles.actionBtn} ${copied ? styles.copied : ''}`}
@@ -296,11 +286,48 @@ export default function App() {
             id="load-btn"
             className={`${styles.actionBtn} ${styles.load}`}
             onClick={() => setShowLoadModal(true)}
-            aria-label="Load names from clipboard"
-            title="Paste names here to load"
+            aria-label="Load names"
+            title="Paste names to load"
           >
             Load
           </button>
+
+          <span className={styles.btnDivider} />
+
+          {/* Group 3: Timer / Wait (contextual) */}
+          {phase === 'pending' && (
+            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
+              ⏸ Wait
+            </button>
+          )}
+          {(phase === 'counting' || phase === 'critical') && (
+            <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
+              💣 {timeStr}
+            </span>
+          )}
+
+          {/* Group 4: Toggles */}
+          <button
+            id="noclear-btn"
+            className={`${styles.noClearBtn} ${noClear ? styles.noClearActive : ''}`}
+            onClick={toggleNoClear}
+            title={noClear ? 'NoClear ON — click to re-enable auto-wipe' : 'NoClear OFF — click to disable auto-wipe'}
+          >
+            {noClear ? '✅ NoClear' : '⛔ NoClear'}
+          </button>
+          <button
+            id="nolock-btn"
+            className={`${styles.noLockBtn} ${noLock ? styles.noLockActive : ''}`}
+            onClick={toggleNoLock}
+            title={noLock ? 'NoLock ON — 30 min. Click to re-enable.' : 'NoLock OFF — stay unlocked across tabs'}
+            aria-label={noLock ? 'NoLock active' : 'Enable NoLock'}
+          >
+            {noLock ? '🛡️ NoLock' : '🔓 NoLock'}
+          </button>
+
+          <span className={styles.btnDivider} />
+
+          {/* Group 5: Danger + Lock */}
           <button
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
@@ -319,40 +346,43 @@ export default function App() {
           >
             🔒
           </button>
-
-          {/* ── NoLock toggle — prevents auto-lock on tab switch ── */}
-          <button
-            id="nolock-btn"
-            className={`${styles.noLockBtn} ${noLock ? styles.noLockActive : ''}`}
-            onClick={toggleNoLock}
-            title={noLock ? 'NoLock ON — auto-locking disabled (30 min). Click to re-enable.' : 'NoLock OFF — tap to stay unlocked when switching tabs'}
-            aria-label={noLock ? 'NoLock active' : 'Enable NoLock'}
-          >
-            {noLock ? '🛡️ NoLock' : '🔓 NoLock'}
-          </button>
         </div>
       </header>
 
-      {/* ── Content row: Grid + Bag side by side ── */}
+      {/* ── Content row: Grid + right panel ── */}
       <div className={styles.contentRow}>
         <section className={styles.gridSection} aria-label="Name list">
           <NameGrid
             names={names}
             tags={tags}
             randomPicks={randomPicks}
+            highlightedNames={highlightedNames}
             onRemove={removeName}
             onEdit={editName}
             onTagSet={setTag}
           />
         </section>
 
-        <Bag
-          bag={bag}
-          onDrop={moveToBag}
-          onRestore={restoreFromBag}
-          onRemove={removeFromBag}
-          onClear={clearBag}
-        />
+        {/* Right sidebar: Bag + Groups stacked */}
+        <div className={styles.rightPanel}>
+          <Bag
+            bag={bag}
+            onDrop={moveToBag}
+            onRestore={restoreFromBag}
+            onRemove={removeFromBag}
+            onClear={clearBag}
+          />
+          <Groups
+            groups={groups}
+            activeGroupId={activeGroupId}
+            onSelectGroup={setActiveGroupId}
+            onCreateGroup={createGroup}
+            onRenameGroup={renameGroup}
+            onDeleteGroup={deleteGroup}
+            onAddToGroup={addToGroup}
+            onRemoveFromGroup={removeFromGroup}
+          />
+        </div>
       </div>
 
       {/* ── Paste-restore toast ── */}

@@ -212,7 +212,7 @@
   justify-content: center;
 }
 
-/* ─── Content row: grid + bag side by side ─── */
+/* ─── Content row: grid + right panel ─── */
 .contentRow {
   flex: 1;
   min-height: 0;
@@ -228,6 +228,26 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* ─── Right sidebar panel (bag + groups stacked) ─── */
+.rightPanel {
+  width: 210px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-default);
+  background: rgba(255, 255, 255, 0.01);
+  overflow: hidden;
+}
+
+/* ─── Header button group divider ─── */
+.btnDivider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.09);
+  flex-shrink: 0;
+  border-radius: 1px;
 }
 
 /* ─── Paste-restore toast ─── */

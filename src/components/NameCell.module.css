@@ -188,3 +188,25 @@
   color: #fde68a;
   font-weight: 500;
 }
+
+/* ─── Highlighted by active group ─── */
+@keyframes groupPulse {
+  0%   { box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35), 0 0 6px rgba(129, 140, 248, 0.15); }
+  50%  { box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.6),  0 0 14px rgba(129, 140, 248, 0.3); }
+  100% { box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.35), 0 0 6px rgba(129, 140, 248, 0.15); }
+}
+
+.highlighted {
+  background: rgba(129, 140, 248, 0.1) !important;
+  border-left: 3px solid rgba(129, 140, 248, 0.7) !important;
+  animation: groupPulse 2.2s ease-in-out infinite;
+}
+
+.highlighted .index {
+  color: rgba(165, 180, 252, 0.9);
+}
+
+.highlighted .name {
+  color: rgba(199, 210, 254, 0.95);
+  font-weight: 500;
+}

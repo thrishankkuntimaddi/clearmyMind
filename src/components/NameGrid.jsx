@@ -5,7 +5,7 @@ const COLS = 5
 const ROWS = 20
 const PAGE = COLS * ROWS   // 100 names per grid block
 
-export default function NameGrid({ names, tags, randomPicks = new Set(), onRemove, onEdit, onTagSet }) {
+export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), onRemove, onEdit, onTagSet }) {
   const numPages = Math.max(1, Math.ceil(names.length / PAGE))
   const overflow = names.length > PAGE
 
@@ -33,6 +33,7 @@ export default function NameGrid({ names, tags, randomPicks = new Set(), onRemov
                   name={name}
                   tag={tags[name] ?? null}
                   picked={randomPicks.has(globalIdx)}
+                  highlighted={highlightedNames.has(name)}
                   onRemove={onRemove}
                   onEdit={onEdit}
                   onTagSet={onTagSet}
