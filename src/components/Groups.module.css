@@ -1,10 +1,10 @@
-/* ─── Groups section (lower half of right panel) ─── */
+/* ─── Groups section (upper half of right panel) ─── */
 .groups {
-  flex: 1;
+  flex: 1;            /* exactly 50% of the rightPanel height */
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);  /* divider above Bag */
   overflow: hidden;
 }
 

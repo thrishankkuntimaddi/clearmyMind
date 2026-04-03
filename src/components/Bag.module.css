@@ -1,11 +1,12 @@
-/* ─── Bag sidebar panel (top half of right panel) ─── */
+/* ─── Bag sidebar panel (bottom half of right panel) ─── */
 .bag {
-  flex: 0 0 auto;
-  max-height: 42%;
+  flex: 1;            /* exactly 50% of the rightPanel height */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   position: relative;
   transition: background 0.2s;
+  border-top: 1px solid var(--border-default);
   overflow: hidden;
 }
 

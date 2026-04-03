@@ -366,15 +366,8 @@ export default function App() {
           />
         </section>
 
-        {/* Right sidebar: Bag + Groups stacked */}
+        {/* Right sidebar: Groups top, Bag bottom — 50/50 */}
         <div className={styles.rightPanel}>
-          <Bag
-            bag={bag}
-            onDrop={moveToBag}
-            onRestore={restoreFromBag}
-            onRemove={removeFromBag}
-            onClear={clearBag}
-          />
           <Groups
             groups={groups}
             activeGroupId={activeGroupId}
@@ -384,6 +377,13 @@ export default function App() {
             onDeleteGroup={deleteGroup}
             onAddToGroup={addToGroup}
             onRemoveFromGroup={removeFromGroup}
+          />
+          <Bag
+            bag={bag}
+            onDrop={moveToBag}
+            onRestore={restoreFromBag}
+            onRemove={removeFromBag}
+            onClear={clearBag}
           />
         </div>
       </div>

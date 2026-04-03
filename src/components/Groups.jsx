@@ -41,7 +41,8 @@ export default function Groups({
   // ── Drop zone per group ─────────────────────────────────────────────────────
   const handleDragOver = useCallback((e, id) => {
     e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'   // copy, not move — name stays in grid
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
     setDragOverId(id)
   }, [])
 

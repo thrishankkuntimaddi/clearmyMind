@@ -53,7 +53,7 @@ export default function NameCell({ index, name, tag, dimmed, picked, highlighted
   // ── Drag handlers ──────────────────────────────────────────────────────────
   function handleDragStart(e) {
     e.dataTransfer.setData('text/plain', name)
-    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.effectAllowed = 'all'   // allow both move (Bag) and copy (Groups)
     setDragging(true)
     setShowPicker(false)
   }
