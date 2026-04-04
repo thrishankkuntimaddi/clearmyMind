@@ -3,7 +3,7 @@ import { TAG_MAP } from '../hooks/useTags.js'
 import TagPicker from './TagPicker.jsx'
 import styles from './NameCell.module.css'
 
-export default function NameCell({ index, name, tag, dimmed, picked, highlighted, onEdit, onRemove, onTagSet }) {
+export default function NameCell({ index, name, tag, dimmed, picked, highlighted, searchMatch, isFirstMatch, onEdit, onRemove, onTagSet }) {
   const [hovered,    setHovered]    = useState(false)
   const [editing,    setEditing]    = useState(false)
   const [draft,      setDraft]      = useState('')
@@ -86,7 +86,8 @@ export default function NameCell({ index, name, tag, dimmed, picked, highlighted
   // ── View mode ──────────────────────────────────────────────────────────────
   return (
     <div
-      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''} ${picked ? styles.picked : ''} ${highlighted ? styles.highlighted : ''} ${dragging ? styles.dragging : ''}`}
+      className={`${styles.cell} ${removing ? styles.removing : ''} ${dimmed ? styles.dimmed : ''} ${picked ? styles.picked : ''} ${highlighted ? styles.highlighted : ''} ${searchMatch ? styles.searchMatch : ''} ${dragging ? styles.dragging : ''}`}
+      data-search-first={isFirstMatch && searchMatch ? 'true' : undefined}
       style={tagColor ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` } : {}}
       role="listitem"
       draggable

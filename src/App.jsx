@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useNames } from './hooks/useNames.js'
 import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
@@ -53,7 +53,7 @@ export default function App() {
 
   // ─── Groups: active group for cell highlight ─────────────────────────────
   const [activeGroupId, setActiveGroupId] = useState(null)
-  const highlightedNames = activeGroupId && groups[activeGroupId]
+  const groupHighlightedNames = activeGroupId && groups[activeGroupId]
     ? new Set(groups[activeGroupId].members)
     : new Set()
 
@@ -98,6 +98,43 @@ export default function App() {
       hasBlasted.current = false
     }
   }, [phase])   // eslint-disable-line — intentionally omit names/clearAll
+
+  // ─── Search ───────────────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef(null)
+
+  // Highlight any name that starts with the query (case-insensitive)
+  const searchHighlighted = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return new Set()
+    return new Set(names.filter(n => n.toLowerCase().startsWith(q)))
+  }, [searchQuery, names])
+
+  // First match name — used for auto-scroll
+  const firstMatchName = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return null
+    return names.find(n => n.toLowerCase().startsWith(q)) ?? null
+  }, [searchQuery, names])
+
+  // Auto-scroll the grid to the first matching cell
+  useEffect(() => {
+    if (!firstMatchName) return
+    const t = setTimeout(() => {
+      const el = document.querySelector('[data-search-first="true"]')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 40)
+    return () => clearTimeout(t)
+  }, [firstMatchName])
+
+  // Clear search on Escape (when search input is focused)
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'Escape' && searchQuery) setSearchQuery('')
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [searchQuery])
 
   // ─── Random Pick 3 ───────────────────────────────────────────────────────
   const [randomPicks, setRandomPicks] = useState(() => new Set())
@@ -253,9 +290,44 @@ export default function App() {
           )}
         </div>
 
-        {/* Input lives in the header, grows to fill the middle */}
+        {/* Always-visible dual bar: search (left) + add-name (right) */}
         <div className={styles.headerInput}>
-          <NameInput ref={nameInputRef} onAdd={addNameTracked} />
+          <div className={styles.headerInputRow}>
+            {/* Search bar — always shown */}
+            <div className={styles.searchBarWrapper}>
+              <span className={styles.searchIcon} aria-hidden="true">🔍</span>
+              <input
+                ref={searchInputRef}
+                id="search-input"
+                type="text"
+                className={styles.searchInput}
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="Search names"
+              />
+              {searchQuery && (
+                <span className={styles.searchMatchCount}>
+                  {searchHighlighted.size}
+                </span>
+              )}
+              {searchQuery && (
+                <button
+                  className={styles.searchClearBtn}
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  title="Clear (Esc)"
+                >×</button>
+              )}
+            </div>
+
+            {/* Add-name input — always shown */}
+            <div className={styles.nameInputSlot}>
+              <NameInput ref={nameInputRef} onAdd={addNameTracked} />
+            </div>
+          </div>
         </div>
 
         {/* ─── Action buttons ─── */}
@@ -359,7 +431,9 @@ export default function App() {
             names={names}
             tags={tags}
             randomPicks={randomPicks}
-            highlightedNames={highlightedNames}
+            highlightedNames={groupHighlightedNames}
+            searchHighlighted={searchHighlighted}
+            firstMatchName={firstMatchName}
             onRemove={removeName}
             onEdit={editName}
             onTagSet={setTag}
