@@ -5,8 +5,8 @@ import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useTags } from './hooks/useTags.js'
 import { useBag } from './hooks/useBag.js'
 import { useGroups } from './hooks/useGroups.js'
+import { buildSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
 import AuthScreen from './components/AuthScreen.jsx'
-import NameInput from './components/NameInput.jsx'
 import NameGrid from './components/NameGrid.jsx'
 import Bag from './components/Bag.jsx'
 import Groups from './components/Groups.jsx'
@@ -31,14 +31,41 @@ export default function App() {
 
   // ─── Names ───────────────────────────────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
-  const { setTag, renameTag, removeTag, clearTags, tags } = useTags()
-  const { bag, addToBag, removeFromBag, clearBag } = useBag()
-  const { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups } = useGroups()
+  const { setTag, renameTag, removeTag, clearTags, tags, mergeTags } = useTags()
+  const { bag, addToBag, removeFromBag, clearBag, mergeBag } = useBag()
+  const { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups()
 
   // Wrap edit/remove/clearAll to keep tags + groups in sync
   const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
   const removeName = useCallback((name) => { removeNameBase(name); removeTag(name); removeNameFromAllGroups(name) }, [removeNameBase, removeTag, removeNameFromAllGroups])
   const clearAll = useCallback(() => { clearAllBase(); clearTags() }, [clearAllBase, clearTags])
+
+  // ─── Restore a full snapshot ─────────────────────────────────────────────
+  const restoreSnapshot = useCallback((parsed) => {
+    let nameCount = 0
+    parsed.names.forEach(n => { if (addName(n)) nameCount++ })
+    if (parsed.bag?.length)                        mergeBag(parsed.bag)
+    if (Object.keys(parsed.tags   ?? {}).length)   mergeTags(parsed.tags)
+    if (Object.keys(parsed.groups ?? {}).length)   mergeGroups(parsed.groups)
+    return {
+      names:  nameCount,
+      groups: Object.keys(parsed.groups ?? {}).length,
+      bag:    (parsed.bag ?? []).length,
+      colors: Object.keys(parsed.tags   ?? {}).length,
+    }
+  }, [addName, mergeBag, mergeTags, mergeGroups])
+
+  // Show a rich toast after snapshot restore
+  function showSnapshotToast(r) {
+    const parts = []
+    if (r.names  > 0) parts.push(`${r.names} name${r.names  !== 1 ? 's' : ''}`)
+    if (r.groups > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
+    if (r.bag    > 0) parts.push(`${r.bag} in bag`)
+    if (r.colors > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
+    if (!parts.length) return
+    setRestoreMsg(`✓ Snapshot — ${parts.join(' · ')}`)
+    setTimeout(() => setRestoreMsg(''), 3500)
+  }
 
   // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
   const moveToBag = useCallback((name) => {
@@ -99,23 +126,28 @@ export default function App() {
     }
   }, [phase])   // eslint-disable-line — intentionally omit names/clearAll
 
-  // ─── Search ───────────────────────────────────────────────────────────────
-  const [searchQuery, setSearchQuery] = useState('')
-  const searchInputRef = useRef(null)
+  // ─── Smart bar (unified search + add) ───────────────────────────────────────
+  const [query, setQuery] = useState('')
+  const smartInputRef = useRef(null)
+  const smartBarRef   = useRef(null)
+  const [smartShaking, setSmartShaking] = useState(false)
 
-  // Highlight any name that starts with the query (case-insensitive)
+  // ─── Mobile tab (names | groups | bag) ─────────────────────────────────
+  const [mobileTab, setMobileTab] = useState('names')
+
+  // Highlight names that start with the query (case-insensitive)
   const searchHighlighted = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+    const q = query.trim().toLowerCase()
     if (!q) return new Set()
     return new Set(names.filter(n => n.toLowerCase().startsWith(q)))
-  }, [searchQuery, names])
+  }, [query, names])
 
-  // First match name — used for auto-scroll
+  // First matching name — drives auto-scroll
   const firstMatchName = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
+    const q = query.trim().toLowerCase()
     if (!q) return null
     return names.find(n => n.toLowerCase().startsWith(q)) ?? null
-  }, [searchQuery, names])
+  }, [query, names])
 
   // Auto-scroll the grid to the first matching cell
   useEffect(() => {
@@ -127,14 +159,48 @@ export default function App() {
     return () => clearTimeout(t)
   }, [firstMatchName])
 
-  // Clear search on Escape (when search input is focused)
+  // Escape clears the query
   useEffect(() => {
     function onKey(e) {
-      if (e.key === 'Escape' && searchQuery) setSearchQuery('')
+      if (e.key === 'Escape' && query) setQuery('')
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [searchQuery])
+  }, [query])
+
+  // Global key capture → focus smart bar when a printable key is pressed anywhere
+  useEffect(() => {
+    function onGlobal(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key.length !== 1) return
+      smartInputRef.current?.focus()
+    }
+    document.addEventListener('keydown', onGlobal)
+    return () => document.removeEventListener('keydown', onGlobal)
+  }, [])
+
+  // Enter key handler for smart bar
+  function handleSmartKey(e) {
+    if (e.key !== 'Enter') return
+    const trimmed = query.trim()
+    if (!trimmed) return
+    // Exact match check (case-insensitive) — partial matches don't block adding
+    // e.g. "Kuntimaddi" can still be added even if "Kuntimaddi Thrishank" is highlighted
+    const exactExists = names.some(n => n.toLowerCase() === trimmed.toLowerCase())
+    if (!exactExists) {
+      e.preventDefault()
+      const ok = addNameTracked(trimmed)
+      if (ok) {
+        setQuery('')
+      } else {
+        setSmartShaking(true)
+        setTimeout(() => setSmartShaking(false), 420)
+      }
+    }
+    // Exact match exists → do nothing (already in list)
+  }
 
   // ─── Random Pick 3 ───────────────────────────────────────────────────────
   const [randomPicks, setRandomPicks] = useState(() => new Set())
@@ -151,12 +217,11 @@ export default function App() {
   }, [randomPicks])
 
   // ─── Cmd+Z Undo last-added name ──────────────────────────────────────────
-  const lastAdded  = useRef(null)    // most recently added name
-  const nameInputRef = useRef(null)  // imperative handle to NameInput
+  const lastAdded = useRef(null)    // most recently added name
 
-  // Wrap addName to track last added
+  // Wrap addName to track last added + apply title case
   const addNameTracked = useCallback((raw) => {
-    const { toTitleCase } = { toTitleCase: (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase()) }
+    const toTitleCase = (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase())
     const formatted = toTitleCase(raw)
     const ok = addName(raw)
     if (ok) lastAdded.current = formatted
@@ -169,19 +234,17 @@ export default function App() {
       const isMac  = navigator.platform.toUpperCase().includes('MAC')
       const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey
       if (!isUndo) return
-      // Only undo if the input is focused or nothing is focused
-      const tag = document.activeElement?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') {
-        // If the input itself has content still, let browser handle native undo
-        const inputEl = document.getElementById('name-input')
-        if (inputEl && inputEl.value.length > 0) return
-      }
+      // If smart bar has content, let browser handle native undo
+      const inputEl = document.getElementById('smart-input')
+      if (inputEl && inputEl.value.length > 0) return
       if (!lastAdded.current) return
       e.preventDefault()
       const name = lastAdded.current
       lastAdded.current = null
       removeName(name)
-      nameInputRef.current?.restoreName(name)
+      // Restore the name back into the smart bar
+      setQuery(name)
+      smartInputRef.current?.focus()
     }
     document.addEventListener('keydown', handleUndo)
     return () => document.removeEventListener('keydown', handleUndo)
@@ -192,53 +255,63 @@ export default function App() {
   const handleCopy = useCallback(async () => {
     if (!names.length) return
     try {
-      await navigator.clipboard.writeText(names.join('\n'))
+      const text = buildSnapshot(names, tags, groups, bag)
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch { /**/ }
-  }, [names])
+  }, [names, tags, groups, bag])
 
-  const handleLoad = useCallback((lines) => {
-    let added = 0
-    lines.forEach(name => { if (addName(name)) added++ })
-    if (added > 0) {
-      setRestored(added)
-      setTimeout(() => setRestored(0), 2500)
+  const handleLoad = useCallback((rawText) => {
+    if (isSnapshot(rawText)) {
+      const r = restoreSnapshot(parseSnapshot(rawText))
+      showSnapshotToast(r)
+    } else {
+      const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
+      let added = 0
+      lines.forEach(name => { if (addName(name)) added++ })
+      if (added > 0) {
+        setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
+        setTimeout(() => setRestoreMsg(''), 2500)
+      }
     }
-  }, [addName])
+  }, [addName, restoreSnapshot])
 
   const [showLoadModal, setShowLoadModal] = useState(false)
 
   // ─── Paste to load ───────────────────────────────────────────────────────
-  const [restored, setRestored] = useState(0)   // 0 = toast hidden
+  const [restoreMsg, setRestoreMsg] = useState('')   // toast message
 
   useEffect(() => {
     if (status !== 'unlocked') return
 
     function handlePaste(e) {
-      // If the Load modal is open, let the textarea inside it handle paste natively
       if (showLoadModal) return
-
       const text = e.clipboardData?.getData('text/plain') ?? ''
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
-      // Single-name paste while an input is focused → let browser handle normally
+      // Rich snapshot paste → restore everything
+      if (isSnapshot(text)) {
+        e.preventDefault()
+        const r = restoreSnapshot(parseSnapshot(text))
+        showSnapshotToast(r)
+        return
+      }
+
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
       if (lines.length <= 1 && document.activeElement?.tagName === 'INPUT') return
       if (lines.length < 1) return
-
       e.preventDefault()
       let added = 0
       lines.forEach(name => { if (addName(name)) added++ })
-
       if (added > 0) {
-        setRestored(added)
-        setTimeout(() => setRestored(0), 2500)
+        setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
+        setTimeout(() => setRestoreMsg(''), 2500)
       }
     }
 
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [status, addName, showLoadModal])
+  }, [status, addName, showLoadModal, restoreSnapshot])
 
   // ─── Auth screens ─────────────────────────────────────────────────────────
   if (status === 'setup' || status === 'locked') {
@@ -271,6 +344,15 @@ export default function App() {
 
   const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
+  // Smart bar: is the current query an exact existing name?
+  const exactExists = query.trim()
+    ? names.some(n => n.toLowerCase() === query.trim().toLowerCase())
+    : false
+  // add-mode = typed something + not an exact match
+  const isAddMode = !!query.trim() && !exactExists
+  // search-mode = typed something + partial matches exist (may or may not be exact)
+  const isSearchMode = !!query.trim() && searchHighlighted.size > 0
+
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
@@ -290,43 +372,53 @@ export default function App() {
           )}
         </div>
 
-        {/* Always-visible dual bar: search (left) + add-name (right) */}
+        {/* ── Smart bar: search while typing, Enter to add if no match ── */}
         <div className={styles.headerInput}>
-          <div className={styles.headerInputRow}>
-            {/* Search bar — always shown */}
-            <div className={styles.searchBarWrapper}>
-              <span className={styles.searchIcon} aria-hidden="true">🔍</span>
-              <input
-                ref={searchInputRef}
-                id="search-input"
-                type="text"
-                className={styles.searchInput}
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                aria-label="Search names"
-              />
-              {searchQuery && (
-                <span className={styles.searchMatchCount}>
-                  {searchHighlighted.size}
-                </span>
-              )}
-              {searchQuery && (
-                <button
-                  className={styles.searchClearBtn}
-                  onClick={() => setSearchQuery('')}
-                  aria-label="Clear search"
-                  title="Clear (Esc)"
-                >×</button>
-              )}
-            </div>
+          <div
+            ref={smartBarRef}
+            className={`${styles.smartBar} ${smartShaking ? styles.smartBarShake : isAddMode ? styles.smartBarAdd : isSearchMode ? styles.smartBarSearch : ''}`}
+          >
+            {/* Contextual icon: + when can add, 🔍 when searching */}
+            <span className={styles.smartBarIcon} aria-hidden="true">
+              {isAddMode ? '+' : '🔍'}
+            </span>
 
-            {/* Add-name input — always shown */}
-            <div className={styles.nameInputSlot}>
-              <NameInput ref={nameInputRef} onAdd={addNameTracked} />
-            </div>
+            <input
+              ref={smartInputRef}
+              id="smart-input"
+              type="text"
+              className={styles.smartBarInput}
+              placeholder="Search or add a name…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={handleSmartKey}
+              autoComplete="off"
+              autoFocus
+              spellCheck={false}
+              aria-label="Search or add name"
+            />
+
+            {/* Match count — shown whenever partial matches exist */}
+            {query && searchHighlighted.size > 0 && (
+              <span className={styles.smartMatchBadge}>
+                {searchHighlighted.size} match{searchHighlighted.size !== 1 ? 'es' : ''}
+              </span>
+            )}
+
+            {/* "↵ add" hint — shown when no exact match (can press Enter to add) */}
+            {isAddMode && (
+              <span className={styles.smartAddHint}>↵ add</span>
+            )}
+
+            {/* Clear button */}
+            {query && (
+              <button
+                className={styles.smartClearBtn}
+                onClick={() => { setQuery(''); smartInputRef.current?.focus() }}
+                aria-label="Clear"
+                title="Clear (Esc)"
+              >×</button>
+            )}
           </div>
         </div>
 
@@ -366,6 +458,21 @@ export default function App() {
           >
             Load
           </button>
+
+          <span className={styles.btnDivider} />
+
+          {/* Clear Colors — only when tags are applied */}
+          {Object.keys(tags).length > 0 && (
+            <button
+              id="clear-colors-btn"
+              className={`${styles.actionBtn} ${styles.clearColors}`}
+              onClick={clearTags}
+              title="Remove all cell colors"
+              aria-label="Clear all colors"
+            >
+              🎨 Clear Colors
+            </button>
+          )}
 
           <span className={styles.btnDivider} />
 
@@ -426,7 +533,10 @@ export default function App() {
 
       {/* ── Content row: Grid + right panel ── */}
       <div className={styles.contentRow}>
-        <section className={styles.gridSection} aria-label="Name list">
+        <section
+          className={`${styles.gridSection} ${mobileTab !== 'names' ? styles.mobileHidden : ''}`}
+          aria-label="Name list"
+        >
           <NameGrid
             names={names}
             tags={tags}
@@ -440,32 +550,36 @@ export default function App() {
           />
         </section>
 
-        {/* Right sidebar: Groups top, Bag bottom — 50/50 */}
-        <div className={styles.rightPanel}>
-          <Groups
-            groups={groups}
-            activeGroupId={activeGroupId}
-            onSelectGroup={setActiveGroupId}
-            onCreateGroup={createGroup}
-            onRenameGroup={renameGroup}
-            onDeleteGroup={deleteGroup}
-            onAddToGroup={addToGroup}
-            onRemoveFromGroup={removeFromGroup}
-          />
-          <Bag
-            bag={bag}
-            onDrop={moveToBag}
-            onRestore={restoreFromBag}
-            onRemove={removeFromBag}
-            onClear={clearBag}
-          />
+        {/* Right sidebar: visible on desktop always; on mobile shown via tab */}
+        <div className={`${styles.rightPanel} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
+          {(mobileTab === 'names' || mobileTab === 'groups') && (
+            <Groups
+              groups={groups}
+              activeGroupId={activeGroupId}
+              onSelectGroup={setActiveGroupId}
+              onCreateGroup={createGroup}
+              onRenameGroup={renameGroup}
+              onDeleteGroup={deleteGroup}
+              onAddToGroup={addToGroup}
+              onRemoveFromGroup={removeFromGroup}
+            />
+          )}
+          {(mobileTab === 'names' || mobileTab === 'bag') && (
+            <Bag
+              bag={bag}
+              onDrop={moveToBag}
+              onRestore={restoreFromBag}
+              onRemove={removeFromBag}
+              onClear={clearBag}
+            />
+          )}
         </div>
       </div>
 
       {/* ── Paste-restore toast ── */}
-      {restored > 0 && (
+      {restoreMsg && (
         <div className={styles.toast} role="status" aria-live="polite">
-          ↓ Restored {restored} name{restored === 1 ? '' : 's'}
+          {restoreMsg}
         </div>
       )}
 
@@ -476,6 +590,34 @@ export default function App() {
           onClose={() => setShowLoadModal(false)}
         />
       )}
+
+      {/* ── Mobile bottom tab bar ── */}
+      <nav className={styles.mobileTabBar} aria-label="Navigation">
+        <button
+          className={`${styles.mobileTab} ${mobileTab === 'names' ? styles.mobileTabActive : ''}`}
+          onClick={() => setMobileTab('names')}
+          aria-label="Names"
+        >
+          <span className={styles.mobileTabIcon}>🧠</span>
+          <span>Names{names.length > 0 ? ` (${names.length})` : ''}</span>
+        </button>
+        <button
+          className={`${styles.mobileTab} ${mobileTab === 'groups' ? styles.mobileTabActive : ''}`}
+          onClick={() => setMobileTab('groups')}
+          aria-label="Groups"
+        >
+          <span className={styles.mobileTabIcon}>📂</span>
+          <span>Groups{Object.keys(groups).length > 0 ? ` (${Object.keys(groups).length})` : ''}</span>
+        </button>
+        <button
+          className={`${styles.mobileTab} ${mobileTab === 'bag' ? styles.mobileTabActive : ''}`}
+          onClick={() => setMobileTab('bag')}
+          aria-label="Bag"
+        >
+          <span className={styles.mobileTabIcon}>🎒</span>
+          <span>Bag{bag.length > 0 ? ` (${bag.length})` : ''}</span>
+        </button>
+      </nav>
     </div>
   )
 }

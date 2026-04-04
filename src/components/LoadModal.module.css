@@ -95,3 +95,67 @@
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* Snapshot restore button (green) */
+.snapBtn {
+  background: linear-gradient(135deg, #059669, #34d399);
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.25);
+}
+.snapBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #10b981, #6ee7b7);
+}
+
+/* Snapshot preview card */
+.snapPreview {
+  background: rgba(52, 211, 153, 0.05);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: snapIn 0.2s ease forwards;
+}
+
+@keyframes snapIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.snapRow {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.snapItem {
+  font-family: var(--font-main, Inter, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  color: #34d399;
+}
+
+.snapItem em {
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 400;
+  margin-left: 2px;
+}
+
+.snapGroups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.snapGroupTag {
+  font-family: var(--font-main, Inter, sans-serif);
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+

@@ -228,3 +228,40 @@
   background: rgba(239, 68, 68, 0.14);
   border-color: rgba(239, 68, 68, 0.35);
 }
+
+/* ═══ Mobile responsive ═══════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Full height on mobile (own tab) */
+  .bag {
+    flex: 1;
+    border-top: none;
+  }
+
+  /* Bag items: taller touch targets */
+  .item {
+    padding: 8px 8px;
+    min-height: 40px;
+  }
+
+  /* Always show action buttons (no hover on touch) */
+  .itemActions {
+    opacity: 1;
+  }
+
+  /* Larger restore/remove buttons */
+  .restoreBtn,
+  .removeBtn {
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+  }
+
+  .itemName {
+    font-size: 13px;
+  }
+
+  .itemNum {
+    font-size: 11px;
+  }
+}
+

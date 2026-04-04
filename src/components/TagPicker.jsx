@@ -26,18 +26,18 @@ export default function TagPicker({ currentTag, onSelect, onClose }) {
             aria-label={label}
           />
         ))}
+
+        {/* Single × clear swatch — replaces the old "Remove Color" button */}
+        <button
+          className={`${styles.clearDot} ${!currentTag ? styles.clearDotDimmed : ''}`}
+          onClick={() => { if (currentTag) onSelect(null) }}
+          title={currentTag ? 'Remove color' : 'No color set'}
+          aria-label="Remove color"
+          disabled={!currentTag}
+        >
+          ×
+        </button>
       </div>
-      {/* Divider + Remove Color button — always visible for discoverability */}
-      <span className={styles.sep} />
-      <button
-        className={`${styles.clear} ${!currentTag ? styles.clearDisabled : ''}`}
-        onClick={() => { if (currentTag) onSelect(null) }}
-        title={currentTag ? 'Remove color' : 'No color set'}
-        aria-label="Remove color"
-        disabled={!currentTag}
-      >
-        ✕ Remove Color
-      </button>
     </div>
   )
 }

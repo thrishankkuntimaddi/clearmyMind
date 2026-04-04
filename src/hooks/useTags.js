@@ -59,5 +59,13 @@ export function useTags() {
     localStorage.removeItem(STORAGE_KEY)
   }, [])
 
-  return { tags, setTag, renameTag, removeTag, clearTags }
+  const mergeTags = useCallback((incoming) => {
+    setTags(prev => {
+      const next = { ...prev, ...incoming }
+      saveTags(next)
+      return next
+    })
+  }, [])
+
+  return { tags, setTag, renameTag, removeTag, clearTags, mergeTags }
 }

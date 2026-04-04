@@ -69,5 +69,24 @@ export function useGroups() {
     })
   }, [])
 
-  return { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups }
+  const mergeGroups = useCallback((incoming) => {
+    setGroups(prev => {
+      const next = { ...prev }
+      let i = 0
+      Object.values(incoming).forEach(g => {
+        const existEntry = Object.entries(next).find(([, eg]) => eg.name === g.name)
+        if (existEntry) {
+          const [eid, eg] = existEntry
+          const merged = [...eg.members]
+          g.members.forEach(m => { if (!merged.includes(m)) merged.push(m) })
+          next[eid] = { ...eg, members: merged }
+        } else {
+          next[`g-import-${Date.now()}-${i++}`] = { name: g.name, members: [...g.members] }
+        }
+      })
+      return next
+    })
+  }, [])
+
+  return { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups }
 }

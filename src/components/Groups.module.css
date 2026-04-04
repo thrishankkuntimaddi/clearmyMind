@@ -326,3 +326,64 @@
   margin: 0;
   font-style: italic;
 }
+
+/* ═══ Mobile responsive ═══════════════════════════════════════ */
+@media (max-width: 768px) {
+  /* Full height on mobile (own tab) */
+  .groups {
+    flex: 1;
+    border-bottom: none;
+  }
+
+  /* Larger tap targets for group rows */
+  .groupRow {
+    padding: 8px 8px;
+    min-height: 40px;
+  }
+
+  /* Always show delete button (no hover on touch) */
+  .deleteBtn {
+    opacity: 1;
+    width: 22px;
+    height: 22px;
+    font-size: 17px;
+  }
+
+  /* Always show remove-member button */
+  .removeMember {
+    opacity: 1;
+    width: 20px;
+    height: 20px;
+    font-size: 15px;
+  }
+
+  /* Larger expand button */
+  .expandBtn {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+  }
+
+  /* Larger add button */
+  .addBtn {
+    width: 24px;
+    height: 24px;
+    font-size: 16px;
+  }
+
+  /* Bigger group name and member text */
+  .groupName {
+    font-size: 13px;
+  }
+
+  .memberName {
+    font-size: 12px;
+  }
+
+  /* Member rows: taller for touch */
+  .member {
+    padding: 4px 4px;
+    min-height: 32px;
+  }
+}
+

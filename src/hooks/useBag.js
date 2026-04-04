@@ -27,5 +27,13 @@ export function useBag() {
 
   const clearBag = useCallback(() => setBag([]), [])
 
-  return { bag, addToBag, removeFromBag, clearBag }
+  const mergeBag = useCallback((items) => {
+    setBag(prev => {
+      const next = [...prev]
+      items.forEach(item => { if (!next.includes(item)) next.push(item) })
+      return next
+    })
+  }, [])
+
+  return { bag, addToBag, removeFromBag, clearBag, mergeBag }
 }
