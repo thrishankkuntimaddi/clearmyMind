@@ -1,6 +1,8 @@
 /*
-  5 columns × 20 rows = 100 slots per page block
+  Desktop: 5 columns × 20 rows = 100 slots per page block
   grid-auto-flow: column → fills top→bottom in col 1, then col 2, etc.
+
+  Mobile:  2 columns × N rows, grid-auto-flow: row → fills left→right naturally
 */
 
 /* ─── Outer wrapper ─── */
@@ -23,9 +25,9 @@
 .scrollable::-webkit-scrollbar       { width: 5px; }
 .scrollable::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 99px; }
 
-/* ─── Each 5×20 page block ─────────────────────────────────── */
+/* ─── Each 5×20 page block (desktop) ──────────────────────────────── */
 .grid {
-  /* Single-page: fill the wrapper's exact height — no overflow, no cut-off */
+  /* Single-page: fill the wrapper's exact height */
   height: 100%;
   display: grid;
   grid-template-rows: repeat(20, 1fr);
@@ -63,36 +65,48 @@
   background: var(--bg-surface);
 }
 
-/* ═══ Mobile responsive ═══════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════
+   MOBILE — 2 columns, dynamic row count, scrollable
+   ════════════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  /* 4 cols on tablet — still feel dense but touch-able */
-  .grid {
-    grid-template-rows: repeat(20, 1fr);
-    grid-auto-columns: 1fr;
+  /* Wrapper: scrollable on mobile */
+  .mobileWrapper {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-default) transparent;
+    flex: 1;
+    min-height: 0;
   }
 
-  /* Last col: slots 81-100 → 4-col = slots 61-80 no right border */
-  .grid > *:nth-child(n+81) {
-    border-right: 1px solid var(--border-subtle);
+  .mobileWrapper::-webkit-scrollbar       { width: 4px; }
+  .mobileWrapper::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 99px; }
+
+  /* 2-column grid, auto-flow row */
+  .mobileGrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-flow: row;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    /* min height: enough for all rows */
+    min-height: fit-content;
   }
-  .grid > *:nth-child(n+61) {
+
+  /* cell borders: right border between col 1 and col 2, bottom between rows */
+  .mobileGrid > * {
+    border-right:  1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    min-height: 38px;
+  }
+
+  /* Remove right border from col 2 (every even cell) */
+  .mobileGrid > *:nth-child(2n) {
     border-right: none;
   }
-}
 
-@media (max-width: 480px) {
-  /* 3 cols on phones — comfortable touch targets */
-  .grid {
-    grid-template-rows: repeat(20, 1fr);
-    grid-auto-columns: 1fr;
-  }
-
-  /* 3 cols: last col starts at slot 41 */
-  .grid > *:nth-child(n+61) {
-    border-right: 1px solid var(--border-subtle);
-  }
-  .grid > *:nth-child(n+41) {
-    border-right: none;
+  /* Remove bottom border from last row */
+  .mobileGrid > *:nth-last-child(-n+2) {
+    border-bottom: none;
   }
 }
-

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { TAG_COLORS } from '../hooks/useTags.js'
 import styles from './TagPicker.module.css'
 
-export default function TagPicker({ currentTag, onSelect, onClose }) {
+export default function TagPicker({ currentTag, onSelect, onClose, fixed = false }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -14,7 +14,7 @@ export default function TagPicker({ currentTag, onSelect, onClose }) {
   }, [onClose])
 
   return (
-    <div ref={ref} className={styles.picker} role="dialog" aria-label="Choose tag color">
+    <div ref={ref} className={`${styles.picker} ${fixed ? styles.pickerFixed : ''}`} role="dialog" aria-label="Choose tag color">
       <div className={styles.dots}>
         {TAG_COLORS.map(({ key, hex, label }) => (
           <button
