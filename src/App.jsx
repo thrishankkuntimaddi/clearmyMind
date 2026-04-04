@@ -5,6 +5,7 @@ import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useTags } from './hooks/useTags.js'
 import { useBag } from './hooks/useBag.js'
 import { useGroups } from './hooks/useGroups.js'
+import { useSheets } from './hooks/useSheets.js'
 import { buildSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
 import AuthScreen from './components/AuthScreen.jsx'
 import NameGrid from './components/NameGrid.jsx'
@@ -14,6 +15,8 @@ import BlastAnimation from './components/BlastAnimation.jsx'
 import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
 import TagFilterBar from './components/TagFilterBar.jsx'
+import SheetBar from './components/SheetBar.jsx'
+import MobileDragOverlay from './components/MobileDragOverlay.jsx'
 import styles from './App.module.css'
 
 // ─── Pick 3 unique indices from [1..n] ────────────────────────────────────────
@@ -30,16 +33,26 @@ export default function App() {
     bioSetupState, enrollBiometric, skipBioEnroll,
     setupPassword, login, loginBiometric, lock, noLock, toggleNoLock } = useAuth()
 
-  // ─── Names ───────────────────────────────────────────────────────────────
-  const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames()
-  const { setTag, renameTag, removeTag, clearTags, tags, mergeTags } = useTags()
-  const { bag, addToBag, removeFromBag, clearBag, mergeBag } = useBag()
-  const { groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups()
+  // ─── Sheets ──────────────────────────────────────────────────────────────
+  const { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet } = useSheets()
 
-  // Wrap edit/remove/clearAll to keep tags + groups in sync
-  const editName = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
+  // ─── Names (scoped to active sheet) ──────────────────────────────────────
+  const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames(activeSheetId)
+  const { setTag, renameTag, removeTag, clearTags, tags, mergeTags }    = useTags(activeSheetId)
+  const { bag, addToBag, removeFromBag, clearBag, mergeBag }             = useBag(activeSheetId)
+  const { groups, createGroup, renameGroup, deleteGroup, clearGroups, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups(activeSheetId)
+
+  // Wrap edit/remove/clearAll to keep tags + groups + bag in sync
+  const editName   = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
   const removeName = useCallback((name) => { removeNameBase(name); removeTag(name); removeNameFromAllGroups(name) }, [removeNameBase, removeTag, removeNameFromAllGroups])
-  const clearAll = useCallback(() => { clearAllBase(); clearTags() }, [clearAllBase, clearTags])
+
+  // ── FIX 1: Clear All now also clears groups and bag ──────────────────────
+  const clearAll = useCallback(() => {
+    clearAllBase()
+    clearTags()
+    clearBag()
+    clearGroups()
+  }, [clearAllBase, clearTags, clearBag, clearGroups])
 
   // ─── Restore a full snapshot ─────────────────────────────────────────────
   const restoreSnapshot = useCallback((parsed) => {
@@ -85,6 +98,9 @@ export default function App() {
     ? new Set(groups[activeGroupId].members)
     : new Set()
 
+  // Reset active group when switching sheets
+  useEffect(() => { setActiveGroupId(null) }, [activeSheetId])
+
   const prevStatus = useRef(status)
   useEffect(() => {
     if (prevStatus.current !== 'unlocked' && status === 'unlocked') reloadFromStorage()
@@ -94,7 +110,6 @@ export default function App() {
   // ─── NoClear mode (default ON) ───────────────────────────────────────────
   const [noClear, setNoClear] = useState(() => {
     const stored = localStorage.getItem('clearmind_noclear')
-    // If never set before, default to ON
     if (stored === null) { localStorage.setItem('clearmind_noclear', '1'); return true }
     return stored === '1'
   })
@@ -108,26 +123,23 @@ export default function App() {
 
   // ─── Auto-wipe ───────────────────────────────────────────────────────────
   const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose, isWarning }
-    = useAutoWipe(noClear ? 0 : names.length)   // pass 0 when NoClear is ON → never triggers
+    = useAutoWipe(noClear ? 0 : names.length)
 
   const capturedNames = useRef([])
-  const hasBlasted = useRef(false)    // prevents StrictMode double-run from wiping capturedNames
+  const hasBlasted    = useRef(false)
 
   useEffect(() => {
     if (phase === 'blasting' && !hasBlasted.current) {
-      // Capture BEFORE clearAll so StrictMode's second invocation sees names=[]
-      // and the guard skips it
       hasBlasted.current = true
       capturedNames.current = [...names]
       clearAll()
     }
     if (phase === 'idle') {
-      // Reset for next blast cycle
       hasBlasted.current = false
     }
-  }, [phase])   // eslint-disable-line — intentionally omit names/clearAll
+  }, [phase])  // eslint-disable-line
 
-  // ─── Smart bar (unified search + add) ───────────────────────────────────────
+  // ─── Smart bar ───────────────────────────────────────────────────────────
   const [query, setQuery] = useState('')
   const smartInputRef = useRef(null)
   const smartBarRef   = useRef(null)
@@ -136,21 +148,55 @@ export default function App() {
   // ─── Mobile tab (names | groups | bag) ─────────────────────────────────
   const [mobileTab, setMobileTab] = useState('names')
 
-  // Highlight names that start with the query (case-insensitive)
+  // ─── Mobile long-press drag state (Fix 2) ────────────────────────────────
+  const [mobileDraggingName, setMobileDraggingName] = useState(null)
+  const [mobileDragPos, setMobileDragPos]           = useState({ x: 0, y: 0 })
+  const tabBarRef = useRef(null)
+
+  const handleMobileLongPress = useCallback((name, x, y) => {
+    setMobileDraggingName(name)
+    setMobileDragPos({ x, y })
+  }, [])
+
+  const handleMobileDropToBag = useCallback((name) => {
+    moveToBag(name)
+    setMobileDraggingName(null)
+    setToast(`🎒 ${name} → Bag`)
+    setTimeout(() => setToast(''), 2000)
+  }, [moveToBag])
+
+  const handleMobileDropToGroup = useCallback((groupId, name) => {
+    addToGroup(groupId, name)
+    setMobileDraggingName(null)
+    const gName = groups[groupId]?.name ?? 'group'
+    setToast(`📂 ${name} → ${gName}`)
+    setTimeout(() => setToast(''), 2000)
+  }, [addToGroup, groups])
+
+  const handleMobileSwitchToGroups = useCallback(() => {
+    setMobileTab('groups')
+  }, [])
+
+  const handleMobileDragCancel = useCallback(() => {
+    setMobileDraggingName(null)
+  }, [])
+
+  // Extra toast state for mobile drop feedback
+  const [toast, setToast] = useState('')
+
+  // Highlight names matching search
   const searchHighlighted = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return new Set()
     return new Set(names.filter(n => n.toLowerCase().startsWith(q)))
   }, [query, names])
 
-  // First matching name — drives auto-scroll
   const firstMatchName = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return null
     return names.find(n => n.toLowerCase().startsWith(q)) ?? null
   }, [query, names])
 
-  // Auto-scroll the grid to the first matching cell
   useEffect(() => {
     if (!firstMatchName) return
     const t = setTimeout(() => {
@@ -160,7 +206,6 @@ export default function App() {
     return () => clearTimeout(t)
   }, [firstMatchName])
 
-  // Escape clears the query
   useEffect(() => {
     function onKey(e) {
       if (e.key === 'Escape' && query) setQuery('')
@@ -169,7 +214,6 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey)
   }, [query])
 
-  // Global key capture → focus smart bar when a printable key is pressed anywhere
   useEffect(() => {
     function onGlobal(e) {
       const tag = document.activeElement?.tagName
@@ -182,13 +226,10 @@ export default function App() {
     return () => document.removeEventListener('keydown', onGlobal)
   }, [])
 
-  // Enter key handler for smart bar
   function handleSmartKey(e) {
     if (e.key !== 'Enter') return
     const trimmed = query.trim()
     if (!trimmed) return
-    // Exact match check (case-insensitive) — partial matches don't block adding
-    // e.g. "Kuntimaddi" can still be added even if "Kuntimaddi Thrishank" is highlighted
     const exactExists = names.some(n => n.toLowerCase() === trimmed.toLowerCase())
     if (!exactExists) {
       e.preventDefault()
@@ -200,7 +241,6 @@ export default function App() {
         setTimeout(() => setSmartShaking(false), 420)
       }
     }
-    // Exact match exists → do nothing (already in list)
   }
 
   // ─── Random Pick 3 ───────────────────────────────────────────────────────
@@ -208,19 +248,16 @@ export default function App() {
   const pickRandom = useCallback(() => {
     setRandomPicks(pickThree(names.length))
   }, [names.length])
-  // Clear picks when names count changes
   useEffect(() => { setRandomPicks(new Set()) }, [names.length])
-  // Auto-clear picks after 10 seconds
   useEffect(() => {
     if (randomPicks.size === 0) return
     const t = setTimeout(() => setRandomPicks(new Set()), 5000)
     return () => clearTimeout(t)
   }, [randomPicks])
 
-  // ─── Cmd+Z Undo last-added name ──────────────────────────────────────────
-  const lastAdded = useRef(null)    // most recently added name
+  // ─── Cmd+Z Undo ──────────────────────────────────────────────────────────
+  const lastAdded = useRef(null)
 
-  // Wrap addName to track last added + apply title case
   const addNameTracked = useCallback((raw) => {
     const toTitleCase = (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase())
     const formatted = toTitleCase(raw)
@@ -235,7 +272,6 @@ export default function App() {
       const isMac  = navigator.platform.toUpperCase().includes('MAC')
       const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey
       if (!isUndo) return
-      // If smart bar has content, let browser handle native undo
       const inputEl = document.getElementById('smart-input')
       if (inputEl && inputEl.value.length > 0) return
       if (!lastAdded.current) return
@@ -243,7 +279,6 @@ export default function App() {
       const name = lastAdded.current
       lastAdded.current = null
       removeName(name)
-      // Restore the name back into the smart bar
       setQuery(name)
       smartInputRef.current?.focus()
     }
@@ -281,7 +316,7 @@ export default function App() {
   const [showLoadModal, setShowLoadModal] = useState(false)
 
   // ─── Paste to load ───────────────────────────────────────────────────────
-  const [restoreMsg, setRestoreMsg] = useState('')   // toast message
+  const [restoreMsg, setRestoreMsg] = useState('')
 
   useEffect(() => {
     if (status !== 'unlocked') return
@@ -290,7 +325,6 @@ export default function App() {
       if (showLoadModal) return
       const text = e.clipboardData?.getData('text/plain') ?? ''
 
-      // Rich snapshot paste → restore everything
       if (isSnapshot(text)) {
         e.preventDefault()
         const r = restoreSnapshot(parseSnapshot(text))
@@ -339,28 +373,24 @@ export default function App() {
     return <CongratsScreen onClose={handleCongratsClose} />
   }
 
-  // ── Timer display helpers ──────────────────────────────────────────────────
-  const mins = Math.floor(countdown / 60)
-  const secs = countdown % 60
+  // Timer display
+  const mins    = Math.floor(countdown / 60)
+  const secs    = countdown % 60
   const timeStr = countdown >= 60
     ? `${mins}:${secs.toString().padStart(2, '0')}`
     : `${countdown}s`
 
   const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
-  // Smart bar: is the current query an exact existing name?
-  const exactExists = query.trim()
-    ? names.some(n => n.toLowerCase() === query.trim().toLowerCase())
-    : false
-  // add-mode = typed something + not an exact match
-  const isAddMode = !!query.trim() && !exactExists
-  // search-mode = typed something + partial matches exist (may or may not be exact)
+  // Smart bar modes
+  const exactExists  = query.trim() ? names.some(n => n.toLowerCase() === query.trim().toLowerCase()) : false
+  const isAddMode    = !!query.trim() && !exactExists
   const isSearchMode = !!query.trim() && searchHighlighted.size > 0
 
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
-      {/* ── Header — single line: brand | input | actions ── */}
+      {/* ── Header ── */}
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
@@ -376,13 +406,12 @@ export default function App() {
           )}
         </div>
 
-        {/* ── Smart bar: search while typing, Enter to add if no match ── */}
+        {/* Smart bar */}
         <div className={styles.headerInput}>
           <div
             ref={smartBarRef}
             className={`${styles.smartBar} ${smartShaking ? styles.smartBarShake : isAddMode ? styles.smartBarAdd : isSearchMode ? styles.smartBarSearch : ''}`}
           >
-            {/* Contextual icon: + when can add, 🔍 when searching */}
             <span className={styles.smartBarIcon} aria-hidden="true">
               {isAddMode ? '+' : '🔍'}
             </span>
@@ -402,19 +431,16 @@ export default function App() {
               aria-label="Search or add name"
             />
 
-            {/* Match count — shown whenever partial matches exist */}
             {query && searchHighlighted.size > 0 && (
               <span className={styles.smartMatchBadge}>
                 {searchHighlighted.size} match{searchHighlighted.size !== 1 ? 'es' : ''}
               </span>
             )}
 
-            {/* "↵ add" hint — shown when no exact match (can press Enter to add) */}
             {isAddMode && (
               <span className={styles.smartAddHint}>↵ add</span>
             )}
 
-            {/* Clear button */}
             {query && (
               <button
                 className={styles.smartClearBtn}
@@ -426,10 +452,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* ─── Action buttons ─── */}
+        {/* Action buttons */}
         <div className={styles.actions}>
-
-          {/* Group 1: 🎲 Pick 3 */}
           <button
             id="pick3-btn"
             className={`${styles.pick3Btn} ${randomPicks.size > 0 ? styles.pick3Active : ''}`}
@@ -443,7 +467,6 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
-          {/* Group 2: Data I/O */}
           <button
             id="copy-btn"
             className={`${styles.actionBtn} ${copied ? styles.copied : ''}`}
@@ -465,7 +488,6 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
-          {/* Clear Colors — only when tags are applied */}
           {Object.keys(tags).length > 0 && (
             <button
               id="clear-colors-btn"
@@ -480,7 +502,6 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
-          {/* Group 3: Timer / Wait (contextual) */}
           {phase === 'pending' && (
             <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
               ⏸ Wait
@@ -492,7 +513,6 @@ export default function App() {
             </span>
           )}
 
-          {/* Group 4: Toggles */}
           <button
             id="noclear-btn"
             className={`${styles.noClearBtn} ${noClear ? styles.noClearActive : ''}`}
@@ -513,13 +533,12 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
-          {/* Group 5: Danger + Lock */}
           <button
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
             onClick={clearAll}
-            disabled={!names.length}
-            aria-label="Clear all names"
+            disabled={!names.length && !bag.length && !Object.keys(groups).length}
+            aria-label="Clear all"
           >
             Clear All
           </button>
@@ -551,10 +570,11 @@ export default function App() {
             onRemove={removeName}
             onEdit={editName}
             onTagSet={setTag}
+            onMobileLongPress={handleMobileLongPress}
           />
         </section>
 
-        {/* Right sidebar: visible on desktop always; on mobile shown via tab */}
+        {/* Right sidebar */}
         <div className={`${styles.rightPanel} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
           {(mobileTab === 'names' || mobileTab === 'groups') && (
             <Groups
@@ -566,6 +586,7 @@ export default function App() {
               onDeleteGroup={deleteGroup}
               onAddToGroup={addToGroup}
               onRemoveFromGroup={removeFromGroup}
+              draggingName={mobileDraggingName}
             />
           )}
           {(mobileTab === 'names' || mobileTab === 'bag') && (
@@ -587,6 +608,13 @@ export default function App() {
         </div>
       )}
 
+      {/* ── Mobile drop toast ── */}
+      {toast && (
+        <div className={styles.toast} role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
+
       {/* ── Load modal ── */}
       {showLoadModal && (
         <LoadModal
@@ -595,8 +623,20 @@ export default function App() {
         />
       )}
 
+      {/* ── Sheet bar — bottom strip (in-flow on desktop, fixed on mobile) ── */}
+      <div className={styles.sheetBarWrap}>
+        <SheetBar
+          sheets={sheets}
+          activeSheetId={activeSheetId}
+          onSwitch={switchSheet}
+          onAdd={addSheet}
+          onRename={renameSheet}
+          onDelete={deleteSheet}
+        />
+      </div>
+
       {/* ── Mobile bottom tab bar ── */}
-      <nav className={styles.mobileTabBar} aria-label="Navigation">
+      <nav className={styles.mobileTabBar} aria-label="Navigation" ref={tabBarRef}>
         <button
           className={`${styles.mobileTab} ${mobileTab === 'names' ? styles.mobileTabActive : ''}`}
           onClick={() => setMobileTab('names')}
@@ -622,6 +662,18 @@ export default function App() {
           <span>Bag{bag.length > 0 ? ` (${bag.length})` : ''}</span>
         </button>
       </nav>
+
+      {/* ── Mobile long-press drag overlay (Fix 2) ── */}
+      <MobileDragOverlay
+        draggingName={mobileDraggingName}
+        initialPos={mobileDragPos}
+        groups={groups}
+        onDropToBag={handleMobileDropToBag}
+        onDropToGroup={handleMobileDropToGroup}
+        onCancel={handleMobileDragCancel}
+        onSwitchToGroups={handleMobileSwitchToGroups}
+        tabBarRef={tabBarRef}
+      />
     </div>
   )
 }

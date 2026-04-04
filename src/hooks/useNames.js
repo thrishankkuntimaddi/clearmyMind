@@ -1,7 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
 
-const STORAGE_KEY = 'clearmind_names'
-
 // Capitalize first letter of every word
 export function toTitleCase(str) {
   return str
@@ -10,9 +8,13 @@ export function toTitleCase(str) {
     .replace(/(?:^|\s)\S/g, (ch) => ch.toUpperCase())
 }
 
-function loadNames() {
+function makeKey(sheetId) {
+  return sheetId ? `clearmind_sheet_${sheetId}_names` : 'clearmind_names'
+}
+
+function loadNames(sheetId) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(makeKey(sheetId))
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -25,16 +27,21 @@ function sortNames(arr) {
   return [...arr].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
-function saveNames(names) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(names))
+function saveNames(sheetId, names) {
+  localStorage.setItem(makeKey(sheetId), JSON.stringify(names))
 }
 
-export function useNames() {
-  const [names, setNames] = useState(() => sortNames(loadNames()))
+export function useNames(sheetId) {
+  const [names, setNames] = useState(() => sortNames(loadNames(sheetId)))
+
+  // Reload when sheet changes
+  useEffect(() => {
+    setNames(sortNames(loadNames(sheetId)))
+  }, [sheetId])
 
   useEffect(() => {
-    saveNames(names)
-  }, [names])
+    saveNames(sheetId, names)
+  }, [sheetId, names])
 
   const addName = useCallback((raw) => {
     const formatted = toTitleCase(raw)
@@ -68,12 +75,12 @@ export function useNames() {
 
   const clearAll = useCallback(() => {
     setNames([])
-    localStorage.removeItem(STORAGE_KEY)
-  }, [])
+    localStorage.removeItem(makeKey(sheetId))
+  }, [sheetId])
 
   const reloadFromStorage = useCallback(() => {
-    setNames(sortNames(loadNames()))
-  }, [])
+    setNames(sortNames(loadNames(sheetId)))
+  }, [sheetId])
 
   return { names, addName, editName, removeName, clearAll, reloadFromStorage }
 }

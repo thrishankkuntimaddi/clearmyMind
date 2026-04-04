@@ -140,12 +140,25 @@
   background: rgba(129, 140, 248, 0.06);
 }
 
-/* Drag-over drop zone */
+/* Drag-over drop zone (desktop) */
 .dragOver {
   border-color: rgba(99, 102, 241, 0.55) !important;
   background: rgba(99, 102, 241, 0.09);
   box-shadow: inset 0 0 12px rgba(99, 102, 241, 0.08);
 }
+
+/* Mobile drag-over: all groups glow amber to invite a drop */
+.mobileDrop {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(245, 158, 11, 0.06);
+  animation: mobileDropPulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes mobileDropPulse {
+  from { border-color: rgba(245, 158, 11, 0.35); box-shadow: none; }
+  to   { border-color: rgba(245, 158, 11, 0.7);  box-shadow: 0 0 10px rgba(245, 158, 11, 0.15); }
+}
+
 
 /* ─── Group header row ─── */
 .groupRow {

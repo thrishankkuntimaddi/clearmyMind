@@ -19,7 +19,7 @@ function useIsMobile() {
   return mobile
 }
 
-export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), searchHighlighted = new Set(), firstMatchName = null, onRemove, onEdit, onTagSet }) {
+export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), searchHighlighted = new Set(), firstMatchName = null, onRemove, onEdit, onTagSet, onMobileLongPress }) {
   const isMobile = useIsMobile()
 
   if (isMobile) {
@@ -53,6 +53,7 @@ export default function NameGrid({ names, tags, randomPicks = new Set(), highlig
                 onRemove={onRemove}
                 onEdit={onEdit}
                 onTagSet={onTagSet}
+                onMobileLongPress={onMobileLongPress}
               />
             ) : (
               <div key={`me-${i}`} className={styles.emptyCell} aria-hidden="true" />
@@ -97,6 +98,7 @@ export default function NameGrid({ names, tags, randomPicks = new Set(), highlig
                   onRemove={onRemove}
                   onEdit={onEdit}
                   onTagSet={onTagSet}
+                  onMobileLongPress={onMobileLongPress}
                 />
               ) : (
                 <div

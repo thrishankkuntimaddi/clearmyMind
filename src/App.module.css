@@ -225,6 +225,12 @@
   justify-content: center;
 }
 
+/* ─── Sheet bar (desktop: sits at bottom of app in normal flow) ─── */
+/* On mobile it is position:fixed so we hide the flow copy */
+.sheetBarWrap {
+  flex-shrink: 0;
+}
+
 /* ─── Content row: grid + right panel ─── */
 .contentRow {
   flex: 1;
@@ -542,11 +548,20 @@
 }
 
 @media (max-width: 768px) {
-  /* ── App shell — leave room for bottom tab bar ── */
+  /* ── App shell — leave room for fixed SheetBar (40px) + fixed tab bar (56px) ── */
   .app {
     padding: 8px 8px 0;
     gap: 4px;
-    padding-bottom: 56px;
+    padding-bottom: 96px;
+  }
+
+  /* On mobile the SheetBar is position:fixed (via SheetBar.module.css).
+     DO NOT use display:none here — it would hide fixed children too.
+     Instead collapse height to 0 so the wrapper takes no flow space. */
+  .sheetBarWrap {
+    height: 0;
+    overflow: visible;
+    flex-shrink: 0;
   }
 
   /* ── Header: THREE stacked full-width rows ── */
@@ -710,7 +725,7 @@
     transform: none;
     text-align: center;
     border-radius: 10px;
-    bottom: 64px; /* above tab bar */
+    bottom: 104px; /* above sheet bar + tab bar */
   }
 }
 

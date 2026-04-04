@@ -1,0 +1,230 @@
+/* ══════════════════════════════════════════════════
+   SHEET BAR — Premium tab strip matching button aesthetic
+   ══════════════════════════════════════════════════ */
+
+/* ─── Container ─── */
+.sheetBar {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 42px;
+  background: var(--bg-surface, #0d0d16);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 10px;
+  gap: 4px;
+}
+
+/* ─── Scrollable tabs wrapper ─── */
+.tabsScroll {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 5px 0;
+}
+
+.tabsScroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Individual tab — matches action button style ─── */
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  /* Default inactive — like Copy/Pick3 buttons */
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    color 0.18s ease;
+  min-width: 58px;
+  max-width: 160px;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* ─── Active tab — matches "Load" button: indigo/purple style ─── */
+.tabActive {
+  background: rgba(99, 102, 241, 0.15) !important;
+  border: 1.5px solid rgba(99, 102, 241, 0.65) !important;
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.1),
+    0 2px 14px rgba(99, 102, 241, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Tab label ─── */
+.tabName {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  letter-spacing: 0.01em;
+  transition: color 0.18s ease;
+}
+
+.tab:hover .tabName {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tabActive .tabName {
+  color: #818cf8;        /* indigo — same as Load button text */
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Rename input ─── */
+.renameInput {
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  color: #818cf8;
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid #818cf8;
+  outline: none;
+  width: 72px;
+  padding: 0;
+  caret-color: #818cf8;
+}
+
+/* ─── Delete (×) button on active tab ─── */
+.deleteTab {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.deleteTab:hover {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* ─── Thin separator before + button ─── */
+.addSep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  margin: 0 4px;
+  border-radius: 1px;
+  align-self: center;
+}
+
+/* ─── Add (+) sheet button — matches action button style ─── */
+.addTab {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 18px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.addTab:hover {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #818cf8;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.2);
+}
+
+/* ══════════════════════════════════════════════════
+   MOBILE  ≤ 768px
+   Fixed just above the bottom nav bar
+   ══════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .sheetBar {
+    position: fixed;
+    bottom: 56px;          /* sits just above the mobile tab bar */
+    left: 0;
+    right: 0;
+    height: 44px;
+    z-index: 99;
+    padding: 0 10px;
+    background: rgba(10, 10, 18, 0.97);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 -4px 24px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  .tabsScroll {
+    gap: 5px;
+    padding: 5px 0;
+  }
+
+  .tab {
+    height: 30px;
+    padding: 0 12px;
+    min-width: 56px;
+    border-radius: 8px;
+  }
+
+  .tabName {
+    font-size: 11.5px;
+  }
+
+  .addTab {
+    width: 30px;
+    height: 30px;
+    font-size: 19px;
+    border-radius: 8px;
+  }
+
+  .deleteTab {
+    width: 17px;
+    height: 17px;
+  }
+}

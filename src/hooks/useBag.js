@@ -1,21 +1,28 @@
 import { useState, useCallback, useEffect } from 'react'
 
-const BAG_KEY = 'clearmind_bag'
+function makeKey(sheetId) {
+  return sheetId ? `clearmind_sheet_${sheetId}_bag` : 'clearmind_bag'
+}
 
-function loadBag() {
+function loadBag(sheetId) {
   try {
-    const raw = localStorage.getItem(BAG_KEY)
+    const raw = localStorage.getItem(makeKey(sheetId))
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed : []
   } catch { return [] }
 }
 
-export function useBag() {
-  const [bag, setBag] = useState(() => loadBag())
+export function useBag(sheetId) {
+  const [bag, setBag] = useState(() => loadBag(sheetId))
+
+  // Reload when sheet changes
+  useEffect(() => {
+    setBag(loadBag(sheetId))
+  }, [sheetId])
 
   useEffect(() => {
-    localStorage.setItem(BAG_KEY, JSON.stringify(bag))
-  }, [bag])
+    localStorage.setItem(makeKey(sheetId), JSON.stringify(bag))
+  }, [sheetId, bag])
 
   const addToBag = useCallback((name) => {
     setBag(prev => prev.includes(name) ? prev : [...prev, name])
@@ -25,7 +32,10 @@ export function useBag() {
     setBag(prev => prev.filter(n => n !== name))
   }, [])
 
-  const clearBag = useCallback(() => setBag([]), [])
+  const clearBag = useCallback(() => {
+    setBag([])
+    localStorage.removeItem(makeKey(sheetId))
+  }, [sheetId])
 
   const mergeBag = useCallback((items) => {
     setBag(prev => {

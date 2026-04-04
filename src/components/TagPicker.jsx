@@ -6,11 +6,16 @@ export default function TagPicker({ currentTag, onSelect, onClose, fixed = false
   const ref = useRef(null)
 
   useEffect(() => {
-    function onDown(e) {
+    function onOutside(e) {
       if (ref.current && !ref.current.contains(e.target)) onClose()
     }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    // mousedown covers desktop; touchstart covers mobile (fires before mousedown)
+    document.addEventListener('mousedown',  onOutside)
+    document.addEventListener('touchstart', onOutside, { passive: true })
+    return () => {
+      document.removeEventListener('mousedown',  onOutside)
+      document.removeEventListener('touchstart', onOutside)
+    }
   }, [onClose])
 
   return (

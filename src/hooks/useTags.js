@@ -1,6 +1,4 @@
-import { useState, useCallback } from 'react'
-
-const STORAGE_KEY = 'clearmind_tags'
+import { useState, useCallback, useEffect } from 'react'
 
 // macOS-style tag colors
 export const TAG_COLORS = [
@@ -15,57 +13,67 @@ export const TAG_COLORS = [
 
 export const TAG_MAP = Object.fromEntries(TAG_COLORS.map(t => [t.key, t]))
 
-function loadTags() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') }
+function makeKey(sheetId) {
+  return sheetId ? `clearmind_sheet_${sheetId}_tags` : 'clearmind_tags'
+}
+
+function loadTags(sheetId) {
+  try { return JSON.parse(localStorage.getItem(makeKey(sheetId)) ?? '{}') }
   catch { return {} }
 }
-function saveTags(t) { localStorage.setItem(STORAGE_KEY, JSON.stringify(t)) }
 
-export function useTags() {
-  const [tags, setTags] = useState(loadTags)
+export function useTags(sheetId) {
+  const [tags, setTags] = useState(() => loadTags(sheetId))
+
+  // Reload when sheet changes
+  useEffect(() => {
+    setTags(loadTags(sheetId))
+  }, [sheetId])
+
+  const saveTags = (t) => localStorage.setItem(makeKey(sheetId), JSON.stringify(t))
 
   const setTag = useCallback((name, colorKey) => {
     setTags(prev => {
       const next = { ...prev }
       if (!colorKey) delete next[name]
       else next[name] = colorKey
-      saveTags(next)
+      localStorage.setItem(makeKey(sheetId), JSON.stringify(next))
       return next
     })
-  }, [])
+  }, [sheetId])
 
   const renameTag = useCallback((oldName, newName) => {
     setTags(prev => {
       if (!prev[oldName]) return prev
       const next = { ...prev, [newName]: prev[oldName] }
       delete next[oldName]
-      saveTags(next)
+      localStorage.setItem(makeKey(sheetId), JSON.stringify(next))
       return next
     })
-  }, [])
+  }, [sheetId])
 
   const removeTag = useCallback((name) => {
     setTags(prev => {
       if (!prev[name]) return prev
       const next = { ...prev }
       delete next[name]
-      saveTags(next)
+      localStorage.setItem(makeKey(sheetId), JSON.stringify(next))
       return next
     })
-  }, [])
+  }, [sheetId])
 
   const clearTags = useCallback(() => {
     setTags({})
-    localStorage.removeItem(STORAGE_KEY)
-  }, [])
+    localStorage.removeItem(makeKey(sheetId))
+  }, [sheetId])
 
   const mergeTags = useCallback((incoming) => {
     setTags(prev => {
       const next = { ...prev, ...incoming }
-      saveTags(next)
+      localStorage.setItem(makeKey(sheetId), JSON.stringify(next))
       return next
     })
-  }, [])
+  }, [sheetId])
 
   return { tags, setTag, renameTag, removeTag, clearTags, mergeTags }
 }

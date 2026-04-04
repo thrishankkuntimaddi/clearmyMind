@@ -1,0 +1,109 @@
+/* ─── Dark backdrop ─── */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 8000;
+  pointer-events: none;
+  animation: fadeIn 0.15s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Ghost name chip following finger ─── */
+.ghost {
+  position: fixed;
+  z-index: 9000;
+  pointer-events: none;
+  background: rgba(99, 102, 241, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 22px;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 6px 28px rgba(99, 102, 241, 0.55);
+  transform: scale(1.06);
+  animation: ghostPop 0.15s ease forwards;
+}
+
+@keyframes ghostPop {
+  from { transform: scale(0.85); opacity: 0.7; }
+  to   { transform: scale(1.06); opacity: 1; }
+}
+
+/* ─── Bag drop indicator ─── */
+.bagDropIndicator {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(99, 102, 241, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
+
+/* ─── "Drag onto a group" hint ─── */
+.groupsHint {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(245, 158, 11, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
+
+/* ─── "Add to GroupName" indicator ─── */
+.groupTargetIndicator {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(52, 211, 153, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(52, 211, 153, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
+
+.groupTargetIndicator strong {
+  font-weight: 700;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

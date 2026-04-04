@@ -10,6 +10,7 @@ export default function Groups({
   onDeleteGroup,
   onAddToGroup,
   onRemoveFromGroup,
+  draggingName,   // string | null — name being mobile-dragged; enables drop glow
 }) {
   const [creating,   setCreating]   = useState(false)
   const [newName,    setNewName]    = useState('')
@@ -117,7 +118,8 @@ export default function Groups({
           return (
             <div
               key={id}
-              className={`${styles.group} ${isActive ? styles.activeGroup : ''} ${isDragOver ? styles.dragOver : ''}`}
+              data-group-id={id}
+              className={`${styles.group} ${isActive ? styles.activeGroup : ''} ${isDragOver ? styles.dragOver : ''} ${draggingName ? styles.mobileDrop : ''}`}
               onDragOver={e => handleDragOver(e, id)}
               onDragLeave={handleDragLeave}
               onDrop={e => handleDrop(e, id)}
