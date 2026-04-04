@@ -25,6 +25,17 @@
   margin-bottom: 4px;
 }
 
+.fingerprintIcon {
+  font-size: 60px;
+  margin-bottom: 4px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.08); opacity: 0.85; }
+}
+
 .title {
   font-size: 22px;
   font-weight: 600;
@@ -84,6 +95,7 @@
   outline: none;
   caret-color: var(--accent);
   transition: border-color var(--transition), box-shadow var(--transition);
+  box-sizing: border-box;
 }
 
 .input:focus {
@@ -122,32 +134,131 @@
   cursor: not-allowed;
 }
 
-/* ─── Biometric ─── */
+/* ─── Biometric unlock button (on locked screen, above password form) ─── */
 .biometricBtn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
   font-family: var(--font-main);
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 11px 20px;
   cursor: pointer;
   width: 100%;
-  justify-content: center;
-  transition: background var(--transition), border-color var(--transition);
-  margin-top: 4px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.1));
+  border: 2px solid rgba(99, 102, 241, 0.4);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition), box-shadow var(--transition);
+  text-align: left;
+  margin-bottom: 4px;
+}
+
+.biometricBtn:active {
+  transform: scale(0.98);
 }
 
 .biometricBtn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-focus);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.18));
+  border-color: rgba(99, 102, 241, 0.7);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 .biometricBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.biometricFingerprintIcon {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+
+.biometricLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.biometricLabel strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.biometricLabel small {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── OR divider ─── */
+.orDivider {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.orDivider::before,
+.orDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-default);
+}
+
+/* ─── Fingerprint enrol screen buttons ─── */
+.enrollBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--font-main);
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 16px 24px;
+  cursor: pointer;
+  width: 100%;
+  transition: opacity var(--transition), transform var(--transition);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+  margin-top: 8px;
+}
+
+.enrollBtn:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.enrollBtn:active {
+  transform: scale(0.98);
+}
+
+.enrollBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.skipBtn {
+  font-family: var(--font-main);
+  font-size: 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 8px 16px;
+  transition: color var(--transition);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.skipBtn:hover:not(:disabled) {
+  color: var(--text-secondary);
+}
+
+.skipBtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

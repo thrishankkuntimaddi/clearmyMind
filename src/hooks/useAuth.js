@@ -11,7 +11,7 @@ import {
 const HASH_KEY      = 'clearmind_password_hash'
 const NAMES_KEY     = 'clearmind_names'
 const NOLOCK_KEY    = 'clearmind_nolock'   // '1' = on, '0' = off
-const MAX_ATTEMPTS  = 3
+export const MAX_ATTEMPTS  = 3
 const LOCK_DELAY_MS = 15000        // 15 s after tab hidden before locking
 const NOLOCK_TTL_MS = 30 * 60000  // 30 min — then NoLock auto-disables
 
@@ -20,11 +20,9 @@ function getStoredHash() {
   return localStorage.getItem(HASH_KEY)
 }
 
-// Read saved NoLock preference ('1' = on, anything else / missing = off by default ON first time)
 function readNoLockPref() {
   const val = localStorage.getItem(NOLOCK_KEY)
   if (val === null) {
-    // First ever launch → default to ON, save it
     localStorage.setItem(NOLOCK_KEY, '1')
     return true
   }
@@ -37,28 +35,30 @@ function saveNoLockPref(enabled) {
 
 export function useAuth() {
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
-  const [biometricReady, setBiometricReady] = useState(false)
-  // credSaved: true if a credential ID is stored in localStorage
+  const [biometricSupported, setBiometricSupported] = useState(false)
+  // credSaved: true if a credential ID exists in localStorage (sync check)
   const [credSaved, setCredSaved] = useState(() => hasStoredCredential())
 
-  // ── NoLock preference: remembers ON/OFF across refreshes ─────────────────
-  // Does NOT bypass login on refresh — only controls tab-switch locking
   const [noLock, setNoLock] = useState(() => readNoLockPref())
 
-  // ── Status: refresh ALWAYS requires password when a hash exists ───────────
+  // 'setup' | 'locked' | 'unlocked'
   const [status, setStatus] = useState(() => getStoredHash() ? 'locked' : 'setup')
 
-  const lockTimer   = useRef(null)
-  const noLockTimer = useRef(null)  // in-memory 30-min auto-expire
+  // After password setup, we offer the user to register fingerprint
+  // This is 'idle' | 'offering' | 'registering'
+  const [bioSetupState, setBioSetupState] = useState('idle')
 
-  // Check biometric once on mount
+  const lockTimer   = useRef(null)
+  const noLockTimer = useRef(null)
+
+  // Check biometric support once on mount
   useEffect(() => {
-    isBiometricAvailable().then(setBiometricReady)
+    isBiometricAvailable().then(setBiometricSupported)
+    // Sync the credSaved flag from localStorage on mount
     setCredSaved(hasStoredCredential())
   }, [])
 
   // ─── Start 30-min timer when NoLock is ON after login ─────────────────────
-  // This runs in-memory only — when it fires it turns NoLock OFF and saves '0'
   useEffect(() => {
     clearTimeout(noLockTimer.current)
     if (noLock && status === 'unlocked') {
@@ -85,7 +85,7 @@ export function useAuth() {
 
     function onVisibilityChange() {
       if (document.hidden) {
-        if (noLock) return                // NoLock suppresses auto-lock
+        if (noLock) return
         lockTimer.current = setTimeout(() => setStatus('locked'), LOCK_DELAY_MS)
       } else {
         clearTimeout(lockTimer.current)
@@ -100,21 +100,35 @@ export function useAuth() {
   }, [status, noLock])
 
   // ─── Setup (first time) ───────────────────────────────────────────────────
+  // NOTE: Does NOT call registerBiometric here — that requires a direct user
+  // gesture tap and cannot be called after an async await chain on iOS Safari.
   const setupPassword = useCallback(async (password) => {
     const hash = await hashPassword(password)
     localStorage.setItem(HASH_KEY, hash)
     setStatus('unlocked')
     setAttemptsLeft(MAX_ATTEMPTS)
-    // Always try to register biometric — don't gate on biometricReady state
-    // which may still be false due to async timing on first mount
-    const available = await isBiometricAvailable()
-    if (available) {
-      const registered = await registerBiometric()
-      if (registered) {
-        setBiometricReady(true)
-        setCredSaved(true)
-      }
+    // Offer fingerprint registration if the device supports it
+    // (actual registration must happen from a direct button click — see enrollBiometric)
+    if (await isBiometricAvailable()) {
+      setBioSetupState('offering')
     }
+  }, [])
+
+  // ─── Enroll fingerprint — MUST be called directly from a button click ─────
+  // Call this from onClick, with NO async awaits before it in the handler
+  const enrollBiometric = useCallback(async () => {
+    setBioSetupState('registering')
+    const ok = await registerBiometric()
+    if (ok) {
+      setCredSaved(true)
+      setBiometricSupported(true)
+    }
+    setBioSetupState('idle')
+    return ok
+  }, [])
+
+  const skipBioEnroll = useCallback(() => {
+    setBioSetupState('idle')
   }, [])
 
   // ─── Login with password ──────────────────────────────────────────────────
@@ -143,6 +157,7 @@ export function useAuth() {
   }, [attemptsLeft])
 
   // ─── Login with biometric ─────────────────────────────────────────────────
+  // MUST be called directly from a button click — no async code before this
   const loginBiometric = useCallback(async () => {
     const ok = await verifyBiometric()
     if (ok) {
@@ -157,17 +172,21 @@ export function useAuth() {
     clearTimeout(lockTimer.current)
     clearTimeout(noLockTimer.current)
     setStatus('locked')
-    // Note: does NOT change noLock preference — user preference stays as-is
   }, [])
 
   return {
     status,
     attemptsLeft,
-    // Show fingerprint button if platform supports biometrics AND we have a stored credential
-    biometricAvailable: (biometricReady || credSaved) && status === 'locked',
+    // Fingerprint UNLOCK button: show when locked + have a stored credential
+    biometricAvailable: credSaved && status === 'locked',
+    // Fingerprint ENROLL offer: show after setup when device supports it
+    bioSetupState,      // 'idle' | 'offering' | 'registering'
+    biometricSupported,
     noLock,
     toggleNoLock,
     setupPassword,
+    enrollBiometric,
+    skipBioEnroll,
     login,
     loginBiometric,
     lock,

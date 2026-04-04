@@ -27,6 +27,7 @@ function pickThree(n) {
 export default function App() {
   // ─── Auth ────────────────────────────────────────────────────────────────
   const { status, attemptsLeft, biometricAvailable,
+    bioSetupState, enrollBiometric, skipBioEnroll,
     setupPassword, login, loginBiometric, lock, noLock, toggleNoLock } = useAuth()
 
   // ─── Names ───────────────────────────────────────────────────────────────
@@ -320,9 +321,12 @@ export default function App() {
         mode={status}
         attemptsLeft={attemptsLeft}
         biometricAvailable={biometricAvailable}
+        bioSetupState={bioSetupState}
         onSetup={setupPassword}
         onLogin={login}
         onBiometric={loginBiometric}
+        onEnrollBiometric={enrollBiometric}
+        onSkipBiometric={skipBioEnroll}
       />
     )
   }

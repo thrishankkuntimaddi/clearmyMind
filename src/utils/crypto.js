@@ -12,8 +12,12 @@ export async function hashPassword(password) {
 
 const CRED_KEY = 'clearmind_cred_id'
 
+// Safe base64 encoder — avoids spread operator stack overflow on mobile
 function bufferToBase64(buffer) {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+  return btoa(binary)
 }
 
 function base64ToBuffer(base64) {
@@ -32,6 +36,7 @@ export async function isBiometricAvailable() {
   }
 }
 
+// MUST be called directly from a click handler — no async awaits before this
 export async function registerBiometric() {
   try {
     const rpId = window.location.hostname || 'localhost'
@@ -41,30 +46,35 @@ export async function registerBiometric() {
         rp: { name: 'ClearMyMind', id: rpId },
         user: {
           id: crypto.getRandomValues(new Uint8Array(16)),
-          name: 'user',
-          displayName: 'User',
+          name: 'clearmymind-user',
+          displayName: 'ClearMyMind User',
         },
         pubKeyCredParams: [
-          { alg: -7, type: 'public-key' },
-          { alg: -257, type: 'public-key' },
+          { alg: -7,   type: 'public-key' },  // ES256
+          { alg: -257, type: 'public-key' },  // RS256
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
+          authenticatorAttachment: 'platform',  // device fingerprint/face
           userVerification: 'required',
+          residentKey: 'preferred',
         },
         timeout: 60000,
+        attestation: 'none',
       },
     })
-    if (credential) {
+    if (credential?.rawId) {
       localStorage.setItem(CRED_KEY, bufferToBase64(credential.rawId))
       return true
     }
     return false
-  } catch {
+  } catch (err) {
+    // NotAllowedError = user cancelled or no gesture; other errors = not supported
+    console.warn('[ClearMyMind] registerBiometric failed:', err?.name, err?.message)
     return false
   }
 }
 
+// MUST be called directly from a click handler — no async awaits before this
 export async function verifyBiometric() {
   try {
     const credId = localStorage.getItem(CRED_KEY)
@@ -80,7 +90,8 @@ export async function verifyBiometric() {
       },
     })
     return !!assertion
-  } catch {
+  } catch (err) {
+    console.warn('[ClearMyMind] verifyBiometric failed:', err?.name, err?.message)
     return false
   }
 }
