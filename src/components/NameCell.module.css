@@ -35,6 +35,11 @@
   animation: fadeIn 180ms ease forwards;
   overflow: hidden;
   border-left: 3px solid transparent;
+  /* Prevent text selection + browser long-press toolbar on all devices */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;   /* iOS: no callout (copy/define/share popup) */
+  touch-action: manipulation;    /* faster taps, no double-tap zoom */
 }
 
 /* ─── Sequential index number ─── */
@@ -277,20 +282,23 @@
     font-size: 17px;
   }
 
-  /* Hide drag handle on mobile (no drag support) */
+  /* Hide drag handle on mobile (uses long-press overlay instead) */
   .dragHandle {
     display: none;
   }
 
-  /* Index number: hide on very small to save space */
+  /* Show row numbers on mobile — matches desktop */
   .index {
-    display: none;
+    display: inline-block;
+    font-size: 9px;
+    min-width: 14px;
   }
 
   .name {
     font-size: 11.5px;
   }
 }
+
 
 @media (max-width: 480px) {
   .cell {
