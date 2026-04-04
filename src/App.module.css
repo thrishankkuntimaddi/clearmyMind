@@ -545,25 +545,26 @@
   /* ── App shell — leave room for bottom tab bar ── */
   .app {
     padding: 8px 8px 0;
-    gap: 6px;
-    padding-bottom: 56px; /* tab bar height */
+    gap: 4px;
+    padding-bottom: 56px;
   }
 
-  /* ── Header: two rows ── */
+  /* ── Header: THREE stacked full-width rows ── */
   .header {
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 4px;
+    align-items: center;
   }
 
-  /* Brand row: brand left, actions right */
+  /* Row 1: Brand takes its own full row */
   .brand {
-    flex: 1;
+    flex-basis: 100%;
     min-width: 0;
   }
 
-  /* Smart bar takes full width on its own row */
+  /* Row 2: Smart bar — full width, order 2 */
   .headerInput {
-    order: 3;
+    order: 2;
     flex-basis: 100%;
     justify-content: stretch;
   }
@@ -572,30 +573,35 @@
     max-width: 100%;
   }
 
-  /* Actions: shrink, hide less-important buttons */
+  /* Row 3: Actions — full width, horizontally scrollable, order 3 */
   .actions {
-    gap: 4px;
+    order: 3;
+    flex-basis: 100%;
+    gap: 5px;
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
+    padding-bottom: 2px;
   }
   .actions::-webkit-scrollbar { display: none; }
 
   /* Shrink toggle buttons on mobile */
   .noClearBtn,
   .noLockBtn {
-    font-size: 10px;
-    padding: 3px 8px;
+    font-size: 10.5px;
+    padding: 4px 10px;
+    white-space: nowrap;
   }
 
   .actionBtn {
     font-size: 11px;
-    padding: 4px 9px;
+    padding: 4px 10px;
+    white-space: nowrap;
   }
 
   .pick3Btn {
     font-size: 11px;
-    padding: 4px 9px;
+    padding: 4px 10px;
   }
 
   /* Hide dividers on mobile to save space */
