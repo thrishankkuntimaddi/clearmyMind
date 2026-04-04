@@ -23,6 +23,16 @@ export default function AuthScreen({
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [mode])
 
+  // Auto-trigger biometric when locked screen appears (mobile UX)
+  useEffect(() => {
+    if (mode === 'locked' && biometricAvailable) {
+      // Small delay so the UI renders first, then prompt fingerprint
+      const t = setTimeout(() => handleBiometric(), 300)
+      return () => clearTimeout(t)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, biometricAvailable])
+
   const clearError = useCallback(() => setError(''), [])
 
   async function handleSubmit(e) {
@@ -122,8 +132,8 @@ export default function AuthScreen({
             disabled={loading}
             aria-label="Unlock with fingerprint"
           >
-            <span aria-hidden="true">☝️</span>
-            Use fingerprint
+            <span aria-hidden="true">👆</span>
+            Tap to use fingerprint
           </button>
         )}
       </div>

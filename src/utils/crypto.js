@@ -88,3 +88,8 @@ export async function verifyBiometric() {
 export function clearBiometric() {
   localStorage.removeItem(CRED_KEY)
 }
+
+// Synchronously checks if a credential ID is already saved
+export function hasStoredCredential() {
+  return !!localStorage.getItem(CRED_KEY)
+}

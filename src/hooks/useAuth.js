@@ -5,6 +5,7 @@ import {
   registerBiometric,
   verifyBiometric,
   clearBiometric,
+  hasStoredCredential,
 } from '../utils/crypto.js'
 
 const HASH_KEY      = 'clearmind_password_hash'
@@ -37,6 +38,8 @@ function saveNoLockPref(enabled) {
 export function useAuth() {
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricReady, setBiometricReady] = useState(false)
+  // credSaved: true if a credential ID is stored in localStorage
+  const [credSaved, setCredSaved] = useState(() => hasStoredCredential())
 
   // ── NoLock preference: remembers ON/OFF across refreshes ─────────────────
   // Does NOT bypass login on refresh — only controls tab-switch locking
@@ -51,6 +54,7 @@ export function useAuth() {
   // Check biometric once on mount
   useEffect(() => {
     isBiometricAvailable().then(setBiometricReady)
+    setCredSaved(hasStoredCredential())
   }, [])
 
   // ─── Start 30-min timer when NoLock is ON after login ─────────────────────
@@ -101,8 +105,17 @@ export function useAuth() {
     localStorage.setItem(HASH_KEY, hash)
     setStatus('unlocked')
     setAttemptsLeft(MAX_ATTEMPTS)
-    if (biometricReady) await registerBiometric()
-  }, [biometricReady])
+    // Always try to register biometric — don't gate on biometricReady state
+    // which may still be false due to async timing on first mount
+    const available = await isBiometricAvailable()
+    if (available) {
+      const registered = await registerBiometric()
+      if (registered) {
+        setBiometricReady(true)
+        setCredSaved(true)
+      }
+    }
+  }, [])
 
   // ─── Login with password ──────────────────────────────────────────────────
   const login = useCallback(async (password) => {
@@ -120,6 +133,7 @@ export function useAuth() {
       localStorage.removeItem(HASH_KEY)
       localStorage.removeItem(NAMES_KEY)
       clearBiometric()
+      setCredSaved(false)
       setStatus('setup')
       setAttemptsLeft(MAX_ATTEMPTS)
       return { success: false, wiped: true }
@@ -149,7 +163,8 @@ export function useAuth() {
   return {
     status,
     attemptsLeft,
-    biometricAvailable: biometricReady && status === 'locked',
+    // Show fingerprint button if platform supports biometrics AND we have a stored credential
+    biometricAvailable: (biometricReady || credSaved) && status === 'locked',
     noLock,
     toggleNoLock,
     setupPassword,
