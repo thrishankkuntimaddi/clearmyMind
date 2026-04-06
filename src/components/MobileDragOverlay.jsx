@@ -60,13 +60,12 @@ export default function MobileDragOverlay({
     }
 
     // ── Which sheet tab is the finger over in the sheet bar? ──
+    // NOTE: We do NOT use sheetBarRef.getBoundingClientRect() because on mobile
+    // the wrapper has height:0 (the inner SheetBar is position:fixed). Instead
+    // we rely purely on elementFromPoint which works against the visual render.
     function getHoveredSheetId(x, y) {
-      const bar = sheetBarRef?.current
-      if (!bar) return null
-      const rect = bar.getBoundingClientRect()
-      // Only activate when finger is inside (or very close to) the sheet bar strip
-      if (y < rect.top - 30 || y > rect.bottom + 10) return null
-      // Use elementFromPoint; walk up to find [data-sheet-id]
+      // elementFromPoint skips pointer-events:none elements, so the backdrop
+      // won't block this. Walk up to find the nearest [data-sheet-id] ancestor.
       const el = document.elementFromPoint(x, y)
       if (!el) return null
       const sheetEl = el.closest('[data-sheet-id]')
