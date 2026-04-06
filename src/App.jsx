@@ -184,15 +184,15 @@ export default function App() {
 
   // ── Cross-sheet drag-to-move ──────────────────────────────────────────────
   const handleMoveNameToSheet = useCallback((name, toSheetId) => {
+    // Always dismiss the mobile drag overlay immediately
+    setMobileDraggingName(null)
+
     const result = moveNameToSheet(name, activeSheetId, toSheetId)
     if (result.ok) {
-      // Re-render the active sheet (name was removed from its list in localStorage)
       reloadFromStorage()
-      // Also remove from local state immediately for instant feedback
       removeNameBase(name)
       removeTag(name)
       removeNameFromAllGroups(name)
-      // Show toast
       const destSheet = sheets.find(s => s.id === toSheetId)
       setToast(`➡️ ${name} moved to ${destSheet?.name ?? 'sheet'}`)
       setTimeout(() => setToast(''), 2500)
