@@ -7,36 +7,38 @@ import styles from './MobileDragOverlay.module.css'
  *
  * Flow:
  * 1. Long-press a name → ghost chip appears at finger
- * 2. Drag toward Bag tab → "Release to add to Bag" hint
- *    Release → name added to bag
- * 3. Drag toward Groups tab → app auto-switches to Groups tab
- *    User then drags over a group row → row glows amber
- *    Release over group row → name added to that group
- * 4. Release anywhere else → cancel
+ * 2. Drag toward Bag tab       → "Release to add to Bag" hint → adds to bag
+ * 3. Drag toward Groups tab    → auto-switches, then drop on group row → adds to group
+ * 4. Drag toward Sheet Bar     → highlights target sheet tab, release = MOVE name there
+ * 5. Release anywhere else     → cancel
  */
 export default function MobileDragOverlay({
-  draggingName,        // string | null
-  initialPos,          // { x, y } — finger position at long-press fire
-  groups,              // { [id]: { name, members } }
-  onDropToBag,         // (name) => void
-  onDropToGroup,       // (groupId, name) => void
-  onCancel,            // () => void
-  onSwitchToGroups,    // () => void — auto-switch mobile tab to Groups
-  tabBarRef,           // ref to the bottom tab bar
+  draggingName,          // string | null
+  initialPos,            // { x, y } — finger position at long-press fire
+  groups,                // { [id]: { name, members } }
+  sheets,                // [{ id, name }]   ← NEW
+  activeSheetId,         // string            ← NEW
+  onDropToBag,           // (name) => void
+  onDropToGroup,         // (groupId, name) => void
+  onMoveNameToSheet,     // (name, toSheetId) => void  ← NEW
+  onCancel,              // () => void
+  onSwitchToGroups,      // () => void
+  tabBarRef,             // ref to the bottom tab bar
+  sheetBarRef,           // ref to the sheet bar strip  ← NEW
 }) {
-  const [ghostPos,      setGhostPos]      = useState({ x: 0, y: 0 })
-  const [hoverTarget,   setHoverTarget]   = useState(null) // 'bag' | 'groups' | null
-  const [hoverGroupId,  setHoverGroupId]  = useState(null) // id of group being hovered
-  const didSwitchGroups = useRef(false)   // switch tab only once per drag
+  const [ghostPos,       setGhostPos]      = useState({ x: 0, y: 0 })
+  const [hoverTarget,    setHoverTarget]   = useState(null) // 'bag' | 'groups' | 'sheet' | null
+  const [hoverGroupId,   setHoverGroupId]  = useState(null)
+  const [hoverSheetId,   setHoverSheetId]  = useState(null) // id of sheet tab finger is over
+  const didSwitchGroups  = useRef(false)
 
-  // Initialize ghost at finger position the moment drag starts
+  // Reset state when a new drag starts or drag ends
   useEffect(() => {
-    if (draggingName && initialPos) {
-      setGhostPos(initialPos)
-    }
+    if (draggingName && initialPos) setGhostPos(initialPos)
     if (!draggingName) {
       setHoverTarget(null)
       setHoverGroupId(null)
+      setHoverSheetId(null)
       didSwitchGroups.current = false
     }
   }, [draggingName, initialPos])
@@ -44,24 +46,39 @@ export default function MobileDragOverlay({
   useEffect(() => {
     if (!draggingName) return
 
+    // ── Which bottom tab zone (Names / Groups / Bag) is the finger in? ──
     function getTabZone(x, y) {
       const bar = tabBarRef?.current
       if (!bar) return null
       const rect = bar.getBoundingClientRect()
-      // Only activate when within 80px above the tab bar or inside it
       if (y < rect.top - 80) return null
       const third = rect.width / 3
       const relX  = x - rect.left
-      if (relX < third)       return 'names'
-      if (relX < third * 2)   return 'groups'
+      if (relX < third)      return 'names'
+      if (relX < third * 2)  return 'groups'
       return 'bag'
     }
 
-    function getHoveredGroupId(x, y) {
-      // Use elementFromPoint to find what's under the finger
+    // ── Which sheet tab is the finger over in the sheet bar? ──
+    function getHoveredSheetId(x, y) {
+      const bar = sheetBarRef?.current
+      if (!bar) return null
+      const rect = bar.getBoundingClientRect()
+      // Only activate when finger is inside (or very close to) the sheet bar strip
+      if (y < rect.top - 30 || y > rect.bottom + 10) return null
+      // Use elementFromPoint; walk up to find [data-sheet-id]
       const el = document.elementFromPoint(x, y)
       if (!el) return null
-      // Walk up DOM to find the group row with data-group-id
+      const sheetEl = el.closest('[data-sheet-id]')
+      if (!sheetEl) return null
+      const sid = sheetEl.dataset.sheetId
+      // Only allow dropping onto a DIFFERENT sheet
+      return sid && sid !== activeSheetId ? sid : null
+    }
+
+    function getHoveredGroupId(x, y) {
+      const el = document.elementFromPoint(x, y)
+      if (!el) return null
       const groupEl = el.closest('[data-group-id]')
       return groupEl ? groupEl.dataset.groupId : null
     }
@@ -72,19 +89,26 @@ export default function MobileDragOverlay({
       const { clientX: x, clientY: y } = touch
       setGhostPos({ x, y })
 
+      // ── Sheet bar takes priority over bottom tab bar ──
+      const sid = getHoveredSheetId(x, y)
+      if (sid) {
+        setHoverTarget('sheet')
+        setHoverSheetId(sid)
+        setHoverGroupId(null)
+        return
+      }
+      setHoverSheetId(null)
+
       const zone = getTabZone(x, y)
       setHoverTarget(zone)
 
-      // Auto-switch to Groups tab once when we enter the groups zone
       if (zone === 'groups' && !didSwitchGroups.current) {
         didSwitchGroups.current = true
         onSwitchToGroups()
       }
 
-      // Once on Groups tab, detect which group row the finger is over
       if (didSwitchGroups.current) {
-        const gid = getHoveredGroupId(x, y)
-        setHoverGroupId(gid)
+        setHoverGroupId(getHoveredGroupId(x, y))
       } else {
         setHoverGroupId(null)
       }
@@ -93,28 +117,32 @@ export default function MobileDragOverlay({
     function onTouchEnd(e) {
       const touch = e.changedTouches[0]
       const { clientX: x, clientY: y } = touch
-      const zone = getTabZone(x, y)
 
-      // Drop into bag
+      // ── Drop onto a sheet tab → MOVE ──
+      const sid = getHoveredSheetId(x, y)
+      if (sid) {
+        onMoveNameToSheet?.(draggingName, sid)
+        return
+      }
+
+      // ── Drop into bag ──
+      const zone = getTabZone(x, y)
       if (zone === 'bag') {
         onDropToBag(draggingName)
         return
       }
 
-      // Drop into a group (via element detection — works even after tab switch)
+      // ── Drop into a group ──
       const hoveredGroupId = getHoveredGroupId(x, y)
       if (hoveredGroupId) {
         onDropToGroup(hoveredGroupId, draggingName)
         return
       }
 
-      // Nowhere useful — cancel
       onCancel()
     }
 
-    function onTouchCancel() {
-      onCancel()
-    }
+    function onTouchCancel() { onCancel() }
 
     document.addEventListener('touchmove',   onTouchMove,   { passive: false })
     document.addEventListener('touchend',    onTouchEnd,    { passive: false })
@@ -124,9 +152,13 @@ export default function MobileDragOverlay({
       document.removeEventListener('touchend',    onTouchEnd)
       document.removeEventListener('touchcancel', onTouchCancel)
     }
-  }, [draggingName, onDropToBag, onDropToGroup, onCancel, onSwitchToGroups, tabBarRef])
+  }, [draggingName, onDropToBag, onDropToGroup, onMoveNameToSheet, onCancel, onSwitchToGroups, tabBarRef, sheetBarRef, activeSheetId])
 
   if (!draggingName) return null
+
+  const hoverSheetName = hoverSheetId
+    ? (sheets ?? []).find(s => s.id === hoverSheetId)?.name ?? 'sheet'
+    : null
 
   return createPortal(
     <>
@@ -142,6 +174,13 @@ export default function MobileDragOverlay({
         {draggingName}
       </div>
 
+      {/* ── Sheet drop hint ── */}
+      {hoverTarget === 'sheet' && hoverSheetName && (
+        <div className={styles.sheetDropIndicator}>
+          ➡️ Move to <strong>{hoverSheetName}</strong>
+        </div>
+      )}
+
       {/* ── Bag drop hint ── */}
       {hoverTarget === 'bag' && (
         <div className={styles.bagDropIndicator}>
@@ -149,7 +188,7 @@ export default function MobileDragOverlay({
         </div>
       )}
 
-      {/* ── Groups hint: first time entering groups zone ── */}
+      {/* ── Groups hint ── */}
       {hoverTarget === 'groups' && !hoverGroupId && (
         <div className={styles.groupsHint}>
           📂 Drag onto a group to add

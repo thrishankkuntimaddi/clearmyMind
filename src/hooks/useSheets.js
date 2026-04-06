@@ -73,5 +73,41 @@ export function useSheets() {
     setActiveSheetId(id)
   }, [])
 
-  return { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet }
+  // Move a name from one sheet to another (both in localStorage directly)
+  // Returns { ok, reason } — caller shows toast + triggers re-render via callback
+  const moveNameToSheet = useCallback((name, fromSheetId, toSheetId) => {
+    if (fromSheetId === toSheetId) return { ok: false, reason: 'same-sheet' }
+
+    function makeKey(sheetId) {
+      return `clearmind_sheet_${sheetId}_names`
+    }
+    function loadArr(key) {
+      try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : [] }
+      catch { return [] }
+    }
+    function sortArr(arr) {
+      return [...arr].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+    }
+
+    const fromKey = makeKey(fromSheetId)
+    const toKey   = makeKey(toSheetId)
+
+    const fromArr = loadArr(fromKey)
+    const toArr   = loadArr(toKey)
+
+    // Name must exist in source
+    if (!fromArr.includes(name)) return { ok: false, reason: 'not-found' }
+    // Skip if already in dest
+    if (toArr.some(n => n.toLowerCase() === name.toLowerCase())) return { ok: false, reason: 'duplicate' }
+
+    const newFrom = fromArr.filter(n => n !== name)
+    const newTo   = sortArr([...toArr, name])
+
+    localStorage.setItem(fromKey, JSON.stringify(newFrom))
+    localStorage.setItem(toKey,   JSON.stringify(newTo))
+
+    return { ok: true }
+  }, [])
+
+  return { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet }
 }

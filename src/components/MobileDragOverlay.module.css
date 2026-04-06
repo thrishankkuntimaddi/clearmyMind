@@ -39,6 +39,30 @@
   to   { transform: scale(1.06); opacity: 1; }
 }
 
+/* ─── Sheet-move drop indicator ─── */
+.sheetDropIndicator {
+  position: fixed;
+  bottom: 112px;          /* just above the sheet bar, which sits above the tab bar */
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(52, 211, 153, 0.94);
+  color: #000;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(52, 211, 153, 0.45);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
+
+.sheetDropIndicator strong {
+  font-weight: 800;
+}
+
 /* ─── Bag drop indicator ─── */
 .bagDropIndicator {
   position: fixed;

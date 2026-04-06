@@ -34,7 +34,7 @@ export default function App() {
     setupPassword, login, loginBiometric, lock, noLock, toggleNoLock } = useAuth()
 
   // ─── Sheets ──────────────────────────────────────────────────────────────
-  const { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet } = useSheets()
+  const { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet } = useSheets()
 
   // ─── Names (scoped to active sheet) ──────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames(activeSheetId)
@@ -151,7 +151,8 @@ export default function App() {
   // ─── Mobile long-press drag state (Fix 2) ────────────────────────────────
   const [mobileDraggingName, setMobileDraggingName] = useState(null)
   const [mobileDragPos, setMobileDragPos]           = useState({ x: 0, y: 0 })
-  const tabBarRef = useRef(null)
+  const tabBarRef   = useRef(null)
+  const sheetBarRef = useRef(null)
 
   const handleMobileLongPress = useCallback((name, x, y) => {
     setMobileDraggingName(name)
@@ -180,6 +181,26 @@ export default function App() {
   const handleMobileDragCancel = useCallback(() => {
     setMobileDraggingName(null)
   }, [])
+
+  // ── Cross-sheet drag-to-move ──────────────────────────────────────────────
+  const handleMoveNameToSheet = useCallback((name, toSheetId) => {
+    const result = moveNameToSheet(name, activeSheetId, toSheetId)
+    if (result.ok) {
+      // Re-render the active sheet (name was removed from its list in localStorage)
+      reloadFromStorage()
+      // Also remove from local state immediately for instant feedback
+      removeNameBase(name)
+      removeTag(name)
+      removeNameFromAllGroups(name)
+      // Show toast
+      const destSheet = sheets.find(s => s.id === toSheetId)
+      setToast(`➡️ ${name} moved to ${destSheet?.name ?? 'sheet'}`)
+      setTimeout(() => setToast(''), 2500)
+    } else if (result.reason === 'duplicate') {
+      setToast(`⚠️ ${name} already exists in that sheet`)
+      setTimeout(() => setToast(''), 2500)
+    }
+  }, [moveNameToSheet, activeSheetId, reloadFromStorage, removeNameBase, removeTag, removeNameFromAllGroups, sheets])
 
   // Extra toast state for mobile drop feedback
   const [toast, setToast] = useState('')
@@ -624,7 +645,7 @@ export default function App() {
       )}
 
       {/* ── Sheet bar — bottom strip (in-flow on desktop, fixed on mobile) ── */}
-      <div className={styles.sheetBarWrap}>
+      <div className={styles.sheetBarWrap} ref={sheetBarRef}>
         <SheetBar
           sheets={sheets}
           activeSheetId={activeSheetId}
@@ -632,6 +653,7 @@ export default function App() {
           onAdd={addSheet}
           onRename={renameSheet}
           onDelete={deleteSheet}
+          onMoveName={handleMoveNameToSheet}
         />
       </div>
 
@@ -663,16 +685,20 @@ export default function App() {
         </button>
       </nav>
 
-      {/* ── Mobile long-press drag overlay (Fix 2) ── */}
+      {/* ── Mobile long-press drag overlay ── */}
       <MobileDragOverlay
         draggingName={mobileDraggingName}
         initialPos={mobileDragPos}
         groups={groups}
+        sheets={sheets}
+        activeSheetId={activeSheetId}
         onDropToBag={handleMobileDropToBag}
         onDropToGroup={handleMobileDropToGroup}
+        onMoveNameToSheet={handleMoveNameToSheet}
         onCancel={handleMobileDragCancel}
         onSwitchToGroups={handleMobileSwitchToGroups}
         tabBarRef={tabBarRef}
+        sheetBarRef={sheetBarRef}
       />
     </div>
   )
