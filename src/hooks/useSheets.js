@@ -57,8 +57,8 @@ export function useSheets() {
     setSheets(prev => {
       if (prev.length <= 1) return prev // keep at least one sheet
       const next = prev.filter(s => s.id !== id)
-      // Clean up storage for this sheet
-      const keySuffixes = ['names', 'tags', 'bag', 'groups']
+      // Clean up storage for this sheet (bag + groups are global, not cleaned here)
+      const keySuffixes = ['names', 'tags']
       keySuffixes.forEach(k => localStorage.removeItem(`clearmind_sheet_${id}_${k}`))
       return next
     })

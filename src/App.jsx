@@ -39,8 +39,8 @@ export default function App() {
   // ─── Names (scoped to active sheet) ──────────────────────────────────────
   const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames(activeSheetId)
   const { setTag, renameTag, removeTag, clearTags, tags, mergeTags }    = useTags(activeSheetId)
-  const { bag, addToBag, removeFromBag, clearBag, mergeBag }             = useBag(activeSheetId)
-  const { groups, createGroup, renameGroup, deleteGroup, clearGroups, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups(activeSheetId)
+  const { bag, addToBag, removeFromBag, clearBag, mergeBag }             = useBag()
+  const { groups, createGroup, renameGroup, deleteGroup, clearGroups, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups()
 
   // Wrap edit/remove/clearAll to keep tags + groups + bag in sync
   const editName   = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
@@ -98,8 +98,8 @@ export default function App() {
     ? new Set(groups[activeGroupId].members)
     : new Set()
 
-  // Reset active group when switching sheets
-  useEffect(() => { setActiveGroupId(null) }, [activeSheetId])
+  // Active group persists across sheet switches so the highlight follows you
+  // (Sheet 1 members highlight on Sheet 1; Sheet 2 members highlight on Sheet 2)
 
   const prevStatus = useRef(status)
   useEffect(() => {

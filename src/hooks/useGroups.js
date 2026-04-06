@@ -1,28 +1,23 @@
 import { useState, useCallback, useEffect } from 'react'
 
-function makeKey(sheetId) {
-  return sheetId ? `clearmind_sheet_${sheetId}_groups` : 'clearmind_groups'
-}
+// Groups are GLOBAL — shared across all sheets
+const GROUPS_KEY = 'clearmind_groups'
 
-function loadGroups(sheetId) {
+function loadGroups() {
   try {
-    const raw = localStorage.getItem(makeKey(sheetId))
+    const raw = localStorage.getItem(GROUPS_KEY)
     const parsed = raw ? JSON.parse(raw) : {}
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch { return {} }
 }
 
-export function useGroups(sheetId) {
-  const [groups, setGroups] = useState(() => loadGroups(sheetId))
+export function useGroups() {
+  const [groups, setGroups] = useState(() => loadGroups())
 
-  // Reload when sheet changes
+  // Persist groups globally on every change
   useEffect(() => {
-    setGroups(loadGroups(sheetId))
-  }, [sheetId])
-
-  useEffect(() => {
-    localStorage.setItem(makeKey(sheetId), JSON.stringify(groups))
-  }, [sheetId, groups])
+    localStorage.setItem(GROUPS_KEY, JSON.stringify(groups))
+  }, [groups])
 
   const createGroup = useCallback((name) => {
     const id = `g-${Date.now()}`
@@ -40,8 +35,8 @@ export function useGroups(sheetId) {
 
   const clearGroups = useCallback(() => {
     setGroups({})
-    localStorage.removeItem(makeKey(sheetId))
-  }, [sheetId])
+    localStorage.removeItem(GROUPS_KEY)
+  }, [])
 
   const addToGroup = useCallback((groupId, name) => {
     setGroups(prev => {
@@ -102,3 +97,4 @@ export function useGroups(sheetId) {
 
   return { groups, createGroup, renameGroup, deleteGroup, clearGroups, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups }
 }
+
