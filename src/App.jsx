@@ -333,6 +333,26 @@ export default function App() {
   // ─── Settings panel ───────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
 
+  // ─── Firebase not configured (secrets missing from build) ────────────────
+  if (authState === 'not-configured') {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '100vh', background: '#0b0b0f',
+        color: '#f87171', fontFamily: 'Inter, system-ui, sans-serif',
+        gap: '12px', padding: '24px', textAlign: 'center',
+      }}>
+        <span style={{ fontSize: '2.5rem' }}>⚠️</span>
+        <strong style={{ fontSize: '1.1rem' }}>Firebase not configured</strong>
+        <p style={{ color: '#9ca3af', fontSize: '0.9rem', maxWidth: '360px', margin: 0 }}>
+          The app's Firebase credentials are missing from this build.
+          Add the <code style={{ color: '#a855f7' }}>VITE_FIREBASE_*</code> secrets
+          to GitHub → Settings → Secrets, then re-run the Actions workflow.
+        </p>
+      </div>
+    )
+  }
+
   // ─── Firebase Auth rendering waterfall ───────────────────────────────────
   if (authState === 'loading') {
     return (

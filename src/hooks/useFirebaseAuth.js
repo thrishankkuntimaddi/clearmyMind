@@ -15,6 +15,8 @@ export function useFirebaseAuth() {
   const [user, setUser]           = useState(null)
 
   useEffect(() => {
+    // Guard: skip listener if Firebase was not configured at build time
+    if (!isConfigured) return
     const unsub = onAuthChange((firebaseUser) => {
       if (!firebaseUser) {
         setUser(null)
