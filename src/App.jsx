@@ -1,20 +1,19 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useNames } from './hooks/useNames.js'
 import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
-import { useTags } from './hooks/useTags.js'
-import { useBag } from './hooks/useBag.js'
-import { useGroups } from './hooks/useGroups.js'
-import { useSheets } from './hooks/useSheets.js'
+import { useFirebaseAuth } from './hooks/useFirebaseAuth.js'
+import { useFirestoreData } from './hooks/useFirestoreData.js'
 import { buildSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
 import AuthScreen from './components/AuthScreen.jsx'
+import FirebaseLoginScreen from './components/FirebaseLoginScreen.jsx'
+import VerifyEmailScreen from './components/VerifyEmailScreen.jsx'
+import SettingsPanel from './components/SettingsPanel.jsx'
 import NameGrid from './components/NameGrid.jsx'
 import Bag from './components/Bag.jsx'
 import Groups from './components/Groups.jsx'
 import BlastAnimation from './components/BlastAnimation.jsx'
 import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
-import TagFilterBar from './components/TagFilterBar.jsx'
 import SheetBar from './components/SheetBar.jsx'
 import MobileDragOverlay from './components/MobileDragOverlay.jsx'
 import styles from './App.module.css'
@@ -28,58 +27,32 @@ function pickThree(n) {
 }
 
 export default function App() {
-  // ─── Auth ────────────────────────────────────────────────────────────────
-  const { status, attemptsLeft, biometricAvailable,
+  // ─── Firebase Auth (cloud identity) ──────────────────────────────────────
+  const {
+    authState, user,
+    signIn, signUp, signOutUser, resendVerification, deleteAccount,
+  } = useFirebaseAuth()
+
+  // ─── App Lock (local device security — unchanged) ─────────────────────────
+  const {
+    status, attemptsLeft, biometricAvailable,
     bioSetupState, enrollBiometric, skipBioEnroll,
-    setupPassword, login, loginBiometric, lock, noLock, toggleNoLock } = useAuth()
+    setupPassword, login, loginBiometric, lock, noLock, toggleNoLock,
+    isLockEnabled, changePassword, disableLock, enableLock,
+  } = useAuth()
 
-  // ─── Sheets ──────────────────────────────────────────────────────────────
-  const { sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet } = useSheets()
-
-  // ─── Names (scoped to active sheet) ──────────────────────────────────────
-  const { names, addName, editName: editNameBase, removeName: removeNameBase, clearAll: clearAllBase, reloadFromStorage } = useNames(activeSheetId)
-  const { setTag, renameTag, removeTag, clearTags, tags, mergeTags }    = useTags(activeSheetId)
-  const { bag, addToBag, removeFromBag, clearBag, mergeBag }             = useBag()
-  const { groups, createGroup, renameGroup, deleteGroup, clearGroups, addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups } = useGroups()
-
-  // Wrap edit/remove/clearAll to keep tags + groups + bag in sync
-  const editName   = useCallback((old, next) => { editNameBase(old, next); renameTag(old, next); renameInGroups(old, next) }, [editNameBase, renameTag, renameInGroups])
-  const removeName = useCallback((name) => { removeNameBase(name); removeTag(name); removeNameFromAllGroups(name) }, [removeNameBase, removeTag, removeNameFromAllGroups])
-
-  // ── FIX 1: Clear All now also clears groups and bag ──────────────────────
-  const clearAll = useCallback(() => {
-    clearAllBase()
-    clearTags()
-    clearBag()
-    clearGroups()
-  }, [clearAllBase, clearTags, clearBag, clearGroups])
-
-  // ─── Restore a full snapshot ─────────────────────────────────────────────
-  const restoreSnapshot = useCallback((parsed) => {
-    let nameCount = 0
-    parsed.names.forEach(n => { if (addName(n)) nameCount++ })
-    if (parsed.bag?.length)                        mergeBag(parsed.bag)
-    if (Object.keys(parsed.tags   ?? {}).length)   mergeTags(parsed.tags)
-    if (Object.keys(parsed.groups ?? {}).length)   mergeGroups(parsed.groups)
-    return {
-      names:  nameCount,
-      groups: Object.keys(parsed.groups ?? {}).length,
-      bag:    (parsed.bag ?? []).length,
-      colors: Object.keys(parsed.tags   ?? {}).length,
-    }
-  }, [addName, mergeBag, mergeTags, mergeGroups])
-
-  // Show a rich toast after snapshot restore
-  function showSnapshotToast(r) {
-    const parts = []
-    if (r.names  > 0) parts.push(`${r.names} name${r.names  !== 1 ? 's' : ''}`)
-    if (r.groups > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
-    if (r.bag    > 0) parts.push(`${r.bag} in bag`)
-    if (r.colors > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
-    if (!parts.length) return
-    setRestoreMsg(`✓ Snapshot — ${parts.join(' · ')}`)
-    setTimeout(() => setRestoreMsg(''), 3500)
-  }
+  // ─── Firestore data (replaces all localStorage data hooks) ───────────────
+  // uid is undefined when not authenticated — hook returns empty defaults safely
+  const {
+    dataReady,
+    sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
+    names, addName, editName, removeName, clearAll, reloadFromStorage,
+    tags, setTag, renameTag, removeTag, clearTags, mergeTags,
+    bag, addToBag, removeFromBag, clearBag, mergeBag,
+    groups, createGroup, renameGroup, deleteGroup, clearGroups,
+    addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups,
+    noClear, toggleNoClear,
+  } = useFirestoreData(user?.uid)
 
   // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
   const moveToBag = useCallback((name) => {
@@ -98,31 +71,16 @@ export default function App() {
     ? new Set(groups[activeGroupId].members)
     : new Set()
 
-  // Active group persists across sheet switches so the highlight follows you
-  // (Sheet 1 members highlight on Sheet 1; Sheet 2 members highlight on Sheet 2)
-
+  // Reload from storage when App Lock is lifted — no-op in Firestore mode,
+  // but kept so the hook contract stays identical
   const prevStatus = useRef(status)
   useEffect(() => {
     if (prevStatus.current !== 'unlocked' && status === 'unlocked') reloadFromStorage()
     prevStatus.current = status
   }, [status, reloadFromStorage])
 
-  // ─── NoClear mode (default ON) ───────────────────────────────────────────
-  const [noClear, setNoClear] = useState(() => {
-    const stored = localStorage.getItem('clearmind_noclear')
-    if (stored === null) { localStorage.setItem('clearmind_noclear', '1'); return true }
-    return stored === '1'
-  })
-  const toggleNoClear = useCallback(() => {
-    setNoClear(prev => {
-      const next = !prev
-      localStorage.setItem('clearmind_noclear', next ? '1' : '0')
-      return next
-    })
-  }, [])
-
   // ─── Auto-wipe ───────────────────────────────────────────────────────────
-  const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose, isWarning }
+  const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose }
     = useAutoWipe(noClear ? 0 : names.length)
 
   const capturedNames = useRef([])
@@ -137,18 +95,18 @@ export default function App() {
     if (phase === 'idle') {
       hasBlasted.current = false
     }
-  }, [phase])  // eslint-disable-line
+  }, [phase]) // eslint-disable-line
 
   // ─── Smart bar ───────────────────────────────────────────────────────────
-  const [query, setQuery] = useState('')
-  const smartInputRef = useRef(null)
-  const smartBarRef   = useRef(null)
+  const [query, setQuery]           = useState('')
+  const smartInputRef               = useRef(null)
+  const smartBarRef                 = useRef(null)
   const [smartShaking, setSmartShaking] = useState(false)
 
-  // ─── Mobile tab (names | groups | bag) ─────────────────────────────────
+  // ─── Mobile tab (names | groups | bag) ───────────────────────────────────
   const [mobileTab, setMobileTab] = useState('names')
 
-  // ─── Mobile long-press drag state (Fix 2) ────────────────────────────────
+  // ─── Mobile long-press drag state ────────────────────────────────────────
   const [mobileDraggingName, setMobileDraggingName] = useState(null)
   const [mobileDragPos, setMobileDragPos]           = useState({ x: 0, y: 0 })
   const tabBarRef   = useRef(null)
@@ -158,6 +116,8 @@ export default function App() {
     setMobileDraggingName(name)
     setMobileDragPos({ x, y })
   }, [])
+
+  const [toast, setToast] = useState('')
 
   const handleMobileDropToBag = useCallback((name) => {
     moveToBag(name)
@@ -174,48 +134,35 @@ export default function App() {
     setTimeout(() => setToast(''), 2000)
   }, [addToGroup, groups])
 
-  const handleMobileSwitchToGroups = useCallback(() => {
-    setMobileTab('groups')
-  }, [])
-
-  const handleMobileDragCancel = useCallback(() => {
-    setMobileDraggingName(null)
-  }, [])
+  const handleMobileSwitchToGroups = useCallback(() => setMobileTab('groups'), [])
+  const handleMobileDragCancel     = useCallback(() => setMobileDraggingName(null), [])
 
   // ── Cross-sheet drag-to-move ──────────────────────────────────────────────
+  // moveNameToSheet already handles names + tags + groups atomically in Firestore
   const handleMoveNameToSheet = useCallback((name, toSheetId) => {
-    // Always dismiss the mobile drag overlay immediately
     setMobileDraggingName(null)
-
     const result = moveNameToSheet(name, activeSheetId, toSheetId)
     if (result.ok) {
-      reloadFromStorage()
-      removeNameBase(name)
-      removeTag(name)
-      removeNameFromAllGroups(name)
-      const destSheet = sheets.find(s => s.id === toSheetId)
+      const destSheet = sheets.find((s) => s.id === toSheetId)
       setToast(`➡️ ${name} moved to ${destSheet?.name ?? 'sheet'}`)
       setTimeout(() => setToast(''), 2500)
     } else if (result.reason === 'duplicate') {
       setToast(`⚠️ ${name} already exists in that sheet`)
       setTimeout(() => setToast(''), 2500)
     }
-  }, [moveNameToSheet, activeSheetId, reloadFromStorage, removeNameBase, removeTag, removeNameFromAllGroups, sheets])
+  }, [moveNameToSheet, activeSheetId, sheets])
 
-  // Extra toast state for mobile drop feedback
-  const [toast, setToast] = useState('')
-
-  // Highlight names matching search
+  // ─── Search ───────────────────────────────────────────────────────────────
   const searchHighlighted = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return new Set()
-    return new Set(names.filter(n => n.toLowerCase().startsWith(q)))
+    return new Set(names.filter((n) => n.toLowerCase().startsWith(q)))
   }, [query, names])
 
   const firstMatchName = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return null
-    return names.find(n => n.toLowerCase().startsWith(q)) ?? null
+    return names.find((n) => n.toLowerCase().startsWith(q)) ?? null
   }, [query, names])
 
   useEffect(() => {
@@ -228,9 +175,7 @@ export default function App() {
   }, [firstMatchName])
 
   useEffect(() => {
-    function onKey(e) {
-      if (e.key === 'Escape' && query) setQuery('')
-    }
+    function onKey(e) { if (e.key === 'Escape' && query) setQuery('') }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [query])
@@ -251,13 +196,12 @@ export default function App() {
     if (e.key !== 'Enter') return
     const trimmed = query.trim()
     if (!trimmed) return
-    const exactExists = names.some(n => n.toLowerCase() === trimmed.toLowerCase())
+    const exactExists = names.some((n) => n.toLowerCase() === trimmed.toLowerCase())
     if (!exactExists) {
       e.preventDefault()
       const ok = addNameTracked(trimmed)
-      if (ok) {
-        setQuery('')
-      } else {
+      if (ok) setQuery('')
+      else {
         setSmartShaking(true)
         setTimeout(() => setSmartShaking(false), 420)
       }
@@ -266,9 +210,7 @@ export default function App() {
 
   // ─── Random Pick 3 ───────────────────────────────────────────────────────
   const [randomPicks, setRandomPicks] = useState(() => new Set())
-  const pickRandom = useCallback(() => {
-    setRandomPicks(pickThree(names.length))
-  }, [names.length])
+  const pickRandom = useCallback(() => setRandomPicks(pickThree(names.length)), [names.length])
   useEffect(() => { setRandomPicks(new Set()) }, [names.length])
   useEffect(() => {
     if (randomPicks.size === 0) return
@@ -280,7 +222,7 @@ export default function App() {
   const lastAdded = useRef(null)
 
   const addNameTracked = useCallback((raw) => {
-    const toTitleCase = (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, c => c.toUpperCase())
+    const toTitleCase = (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, (c) => c.toUpperCase())
     const formatted = toTitleCase(raw)
     const ok = addName(raw)
     if (ok) lastAdded.current = formatted
@@ -307,7 +249,7 @@ export default function App() {
     return () => document.removeEventListener('keydown', handleUndo)
   }, [status, removeName])
 
-  // ─── Copy ────────────────────────────────────────────────────────────────
+  // ─── Copy ─────────────────────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
   const handleCopy = useCallback(async () => {
     if (!names.length) return
@@ -319,14 +261,43 @@ export default function App() {
     } catch { /**/ }
   }, [names, tags, groups, bag])
 
+  // ─── Paste / Load / Snapshot ──────────────────────────────────────────────
+  const [restoreMsg, setRestoreMsg] = useState('')
+
+  const restoreSnapshot = useCallback((parsed) => {
+    let nameCount = 0
+    parsed.names.forEach((n) => { if (addName(n)) nameCount++ })
+    if (parsed.bag?.length)                       mergeBag(parsed.bag)
+    if (Object.keys(parsed.tags   ?? {}).length)  mergeTags(parsed.tags)
+    if (Object.keys(parsed.groups ?? {}).length)  mergeGroups(parsed.groups)
+    return {
+      names:  nameCount,
+      groups: Object.keys(parsed.groups ?? {}).length,
+      bag:    (parsed.bag ?? []).length,
+      colors: Object.keys(parsed.tags   ?? {}).length,
+    }
+  }, [addName, mergeBag, mergeTags, mergeGroups])
+
+  function showSnapshotToast(r) {
+    const parts = []
+    if (r.names  > 0) parts.push(`${r.names} name${r.names  !== 1 ? 's' : ''}`)
+    if (r.groups > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
+    if (r.bag    > 0) parts.push(`${r.bag} in bag`)
+    if (r.colors > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
+    if (!parts.length) return
+    setRestoreMsg(`✓ Snapshot — ${parts.join(' · ')}`)
+    setTimeout(() => setRestoreMsg(''), 3500)
+  }
+
+  const [showLoadModal, setShowLoadModal] = useState(false)
+
   const handleLoad = useCallback((rawText) => {
     if (isSnapshot(rawText)) {
-      const r = restoreSnapshot(parseSnapshot(rawText))
-      showSnapshotToast(r)
+      showSnapshotToast(restoreSnapshot(parseSnapshot(rawText)))
     } else {
-      const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
+      const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean)
       let added = 0
-      lines.forEach(name => { if (addName(name)) added++ })
+      lines.forEach((name) => { if (addName(name)) added++ })
       if (added > 0) {
         setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
         setTimeout(() => setRestoreMsg(''), 2500)
@@ -334,42 +305,57 @@ export default function App() {
     }
   }, [addName, restoreSnapshot])
 
-  const [showLoadModal, setShowLoadModal] = useState(false)
-
-  // ─── Paste to load ───────────────────────────────────────────────────────
-  const [restoreMsg, setRestoreMsg] = useState('')
-
   useEffect(() => {
     if (status !== 'unlocked') return
-
     function handlePaste(e) {
       if (showLoadModal) return
       const text = e.clipboardData?.getData('text/plain') ?? ''
-
       if (isSnapshot(text)) {
         e.preventDefault()
-        const r = restoreSnapshot(parseSnapshot(text))
-        showSnapshotToast(r)
+        showSnapshotToast(restoreSnapshot(parseSnapshot(text)))
         return
       }
-
-      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
       if (lines.length <= 1 && document.activeElement?.tagName === 'INPUT') return
       if (lines.length < 1) return
       e.preventDefault()
       let added = 0
-      lines.forEach(name => { if (addName(name)) added++ })
+      lines.forEach((name) => { if (addName(name)) added++ })
       if (added > 0) {
         setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
         setTimeout(() => setRestoreMsg(''), 2500)
       }
     }
-
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
   }, [status, addName, showLoadModal, restoreSnapshot])
 
-  // ─── Auth screens ─────────────────────────────────────────────────────────
+  // ─── Settings panel ───────────────────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false)
+
+  // ─── Firebase Auth rendering waterfall ───────────────────────────────────
+  if (authState === 'loading') {
+    return (
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        height: '100vh', background: '#0b0b0f', color: '#a855f7',
+        fontFamily: 'Inter, system-ui, sans-serif', fontSize: '1.1rem', gap: '10px',
+      }}>
+        <span style={{ display: 'inline-block', animation: 'none', fontSize: '1.4rem' }}>🧠</span>
+        Loading…
+      </div>
+    )
+  }
+
+  if (authState === 'unauthenticated') {
+    return <FirebaseLoginScreen onSignIn={signIn} onSignUp={signUp} />
+  }
+
+  if (authState === 'unverified') {
+    return <VerifyEmailScreen user={user} onResend={resendVerification} onSignOut={signOutUser} />
+  }
+
+  // ─── App Lock gate (local, device-level) ─────────────────────────────────
   if (status === 'setup' || status === 'locked') {
     return (
       <AuthScreen
@@ -404,7 +390,7 @@ export default function App() {
   const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
   // Smart bar modes
-  const exactExists  = query.trim() ? names.some(n => n.toLowerCase() === query.trim().toLowerCase()) : false
+  const exactExists  = query.trim() ? names.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
   const isAddMode    = !!query.trim() && !exactExists
   const isSearchMode = !!query.trim() && searchHighlighted.size > 0
 
@@ -418,8 +404,9 @@ export default function App() {
           <span className={styles.title}>ClearMyMind</span>
           {names.length > 0 && (
             <span
-              className={`${styles.count} ${names.length >= 90 ? styles.countCritical :
-                  names.length >= 80 ? styles.countWarn : ''}`}
+              className={`${styles.count} ${
+                names.length >= 90 ? styles.countCritical :
+                names.length >= 80 ? styles.countWarn : ''}`}
               aria-live="polite"
             >
               {names.length}
@@ -431,12 +418,14 @@ export default function App() {
         <div className={styles.headerInput}>
           <div
             ref={smartBarRef}
-            className={`${styles.smartBar} ${smartShaking ? styles.smartBarShake : isAddMode ? styles.smartBarAdd : isSearchMode ? styles.smartBarSearch : ''}`}
+            className={`${styles.smartBar} ${
+              smartShaking  ? styles.smartBarShake  :
+              isAddMode     ? styles.smartBarAdd    :
+              isSearchMode  ? styles.smartBarSearch : ''}`}
           >
             <span className={styles.smartBarIcon} aria-hidden="true">
               {isAddMode ? '+' : '🔍'}
             </span>
-
             <input
               ref={smartInputRef}
               id="smart-input"
@@ -444,24 +433,19 @@ export default function App() {
               className={styles.smartBarInput}
               placeholder="Search or add a name…"
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleSmartKey}
               autoComplete="off"
               autoFocus
               spellCheck={false}
               aria-label="Search or add name"
             />
-
             {query && searchHighlighted.size > 0 && (
               <span className={styles.smartMatchBadge}>
                 {searchHighlighted.size} match{searchHighlighted.size !== 1 ? 'es' : ''}
               </span>
             )}
-
-            {isAddMode && (
-              <span className={styles.smartAddHint}>↵ add</span>
-            )}
-
+            {isAddMode && <span className={styles.smartAddHint}>↵ add</span>}
             {query && (
               <button
                 className={styles.smartClearBtn}
@@ -483,7 +467,7 @@ export default function App() {
             title={names.length < 3 ? 'Need at least 3 names' : 'Pick 3 random'}
             aria-label="Pick 3 random names"
           >
-            🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a,b)=>a-b).join(', ')}` : 'Pick 3'}
+            🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a, b) => a - b).join(', ')}` : 'Pick 3'}
           </button>
 
           <span className={styles.btnDivider} />
@@ -503,9 +487,7 @@ export default function App() {
             onClick={() => setShowLoadModal(true)}
             aria-label="Load names"
             title="Paste names to load"
-          >
-            Load
-          </button>
+          >Load</button>
 
           <span className={styles.btnDivider} />
 
@@ -516,17 +498,13 @@ export default function App() {
               onClick={clearTags}
               title="Remove all cell colors"
               aria-label="Clear all colors"
-            >
-              🎨 Clear Colors
-            </button>
+            >🎨 Clear Colors</button>
           )}
 
           <span className={styles.btnDivider} />
 
           {phase === 'pending' && (
-            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>
-              ⏸ Wait
-            </button>
+            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>⏸ Wait</button>
           )}
           {(phase === 'counting' || phase === 'critical') && (
             <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
@@ -560,18 +538,21 @@ export default function App() {
             onClick={clearAll}
             disabled={!names.length && !bag.length && !Object.keys(groups).length}
             aria-label="Clear all"
-          >
-            Clear All
-          </button>
+          >Clear All</button>
           <button
             id="lock-btn"
             className={`${styles.actionBtn} ${styles.lock}`}
             onClick={lock}
             aria-label="Lock app"
             title="Lock"
-          >
-            🔒
-          </button>
+          >🔒</button>
+          <button
+            id="settings-btn"
+            className={`${styles.actionBtn} ${styles.settingsBtn}`}
+            onClick={() => setShowSettings(true)}
+            aria-label="Settings"
+            title="Settings"
+          >⚙️</button>
         </div>
       </header>
 
@@ -624,16 +605,12 @@ export default function App() {
 
       {/* ── Paste-restore toast ── */}
       {restoreMsg && (
-        <div className={styles.toast} role="status" aria-live="polite">
-          {restoreMsg}
-        </div>
+        <div className={styles.toast} role="status" aria-live="polite">{restoreMsg}</div>
       )}
 
       {/* ── Mobile drop toast ── */}
       {toast && (
-        <div className={styles.toast} role="status" aria-live="polite">
-          {toast}
-        </div>
+        <div className={styles.toast} role="status" aria-live="polite">{toast}</div>
       )}
 
       {/* ── Load modal ── */}
@@ -644,7 +621,22 @@ export default function App() {
         />
       )}
 
-      {/* ── Sheet bar — bottom strip (in-flow on desktop, fixed on mobile) ── */}
+      {/* ── Settings panel ── */}
+      {showSettings && (
+        <SettingsPanel
+          user={user}
+          isLockEnabled={isLockEnabled}
+          onSignOut={signOutUser}
+          onDeleteAccount={deleteAccount}
+          onResetData={clearAll}
+          onEnableLock={enableLock}
+          onDisableLock={disableLock}
+          onChangePassword={changePassword}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* ── Sheet bar — bottom strip ── */}
       <div className={styles.sheetBarWrap} ref={sheetBarRef}>
         <SheetBar
           sheets={sheets}

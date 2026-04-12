@@ -8,9 +8,10 @@ import {
   hasStoredCredential,
 } from '../utils/crypto.js'
 
-const HASH_KEY      = 'clearmind_password_hash'
-const NAMES_KEY     = 'clearmind_names'
-const NOLOCK_KEY    = 'clearmind_nolock'   // '1' = on, '0' = off
+const HASH_KEY         = 'clearmind_password_hash'
+const NAMES_KEY        = 'clearmind_names'
+const NOLOCK_KEY       = 'clearmind_nolock'        // '1' = on, '0' = off
+const LOCK_DISABLED_KEY = 'clearmind_lock_disabled' // '1' = App Lock bypassed
 export const MAX_ATTEMPTS  = 3
 const LOCK_DELAY_MS = 15000        // 15 s after tab hidden before locking
 const NOLOCK_TTL_MS = 30 * 60000  // 30 min — then NoLock auto-disables
@@ -42,7 +43,11 @@ export function useAuth() {
   const [noLock, setNoLock] = useState(() => readNoLockPref())
 
   // 'setup' | 'locked' | 'unlocked'
-  const [status, setStatus] = useState(() => getStoredHash() ? 'locked' : 'setup')
+  // If lock is explicitly disabled (user turned it off in Settings), always unlock
+  const [status, setStatus] = useState(() => {
+    if (localStorage.getItem(LOCK_DISABLED_KEY) === '1') return 'unlocked'
+    return getStoredHash() ? 'locked' : 'setup'
+  })
 
   // After password setup, we offer the user to register fingerprint
   // This is 'idle' | 'offering' | 'registering'
@@ -105,6 +110,7 @@ export function useAuth() {
   const setupPassword = useCallback(async (password) => {
     const hash = await hashPassword(password)
     localStorage.setItem(HASH_KEY, hash)
+    localStorage.removeItem(LOCK_DISABLED_KEY) // clear any previous disable flag
     setStatus('unlocked')
     setAttemptsLeft(MAX_ATTEMPTS)
     // Offer fingerprint registration if the device supports it
@@ -174,6 +180,32 @@ export function useAuth() {
     setStatus('locked')
   }, [])
 
+  // ─── Change password (Settings) ──────────────────────────────────────────
+  const changePassword = useCallback(async (oldPwd, newPwd) => {
+    const oldHash = await hashPassword(oldPwd)
+    if (oldHash !== getStoredHash()) return { success: false, error: 'Incorrect current password.' }
+    const newHash = await hashPassword(newPwd)
+    localStorage.setItem(HASH_KEY, newHash)
+    return { success: true }
+  }, [])
+
+  // ─── Disable App Lock (Settings) — keeps Firebase auth, removes device lock
+  const disableLock = useCallback(async (password) => {
+    const hash = await hashPassword(password)
+    if (hash !== getStoredHash()) return { success: false, error: 'Incorrect password.' }
+    localStorage.removeItem(HASH_KEY)
+    localStorage.setItem(LOCK_DISABLED_KEY, '1')
+    clearBiometric()
+    setCredSaved(false)
+    return { success: true }
+  }, [])
+
+  // ─── Enable App Lock (Settings) — sends user to Setup flow
+  const enableLock = useCallback(() => {
+    localStorage.removeItem(LOCK_DISABLED_KEY)
+    setStatus('setup')
+  }, [])
+
   return {
     status,
     attemptsLeft,
@@ -190,5 +222,10 @@ export function useAuth() {
     login,
     loginBiometric,
     lock,
+    // Settings-facing
+    isLockEnabled: !!getStoredHash(),
+    changePassword,
+    disableLock,
+    enableLock,
   }
 }

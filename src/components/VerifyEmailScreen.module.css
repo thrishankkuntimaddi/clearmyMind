@@ -1,0 +1,117 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: #0b0b0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 1000;
+}
+
+.card {
+  background: linear-gradient(145deg, #13131a, #1a1a28);
+  border: 1px solid rgba(168, 85, 247, 0.18);
+  border-radius: 1.5rem;
+  padding: 2.75rem 2rem;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  box-shadow:
+    0 25px 60px rgba(0, 0, 0, 0.6),
+    0 0 80px rgba(168, 85, 247, 0.05);
+}
+
+.iconWrap {
+  margin-bottom: 1.25rem;
+}
+.icon {
+  font-size: 3.5rem;
+  filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.4));
+}
+
+.title {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #f1f0ff;
+  margin: 0 0 1rem;
+  letter-spacing: -0.03em;
+}
+
+.message {
+  font-size: 0.95rem;
+  color: #8b8ba8;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+}
+.email {
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.hint {
+  font-size: 0.85rem;
+  color: #555570;
+  line-height: 1.55;
+  margin-bottom: 1.5rem;
+}
+
+.sentBadge {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.875rem;
+  color: #86efac;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.25rem;
+}
+
+.resendBtn {
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  border: none;
+  border-radius: 0.65rem;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  box-shadow: 0 4px 15px rgba(124, 58, 237, 0.35);
+}
+.resendBtn:hover:not(:disabled) { opacity: 0.9; }
+.resendBtn:active:not(:disabled) { transform: scale(0.98); }
+.resendBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.signOutBtn {
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.65rem;
+  color: #8b8ba8;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.signOutBtn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+.signOutBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.tip {
+  font-size: 0.8rem;
+  color: #43435a;
+  margin: 0;
+}
