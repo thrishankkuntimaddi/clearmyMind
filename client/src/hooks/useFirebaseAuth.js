@@ -68,6 +68,7 @@ export function useFirebaseAuth() {
 
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const signOutUser = useCallback(async () => {
+    stopListening()  // clear Firestore listeners + cache before signing out
     await signOut()
   }, [])
 

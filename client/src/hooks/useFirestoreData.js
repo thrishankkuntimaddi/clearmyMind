@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { patchUserData, subscribeToUserData, fetchAllUserData, USER_DOCS } from '../lib/db.js'
+import { patchUserData, subscribeToUserData, fetchAllUserDataWithErrors, USER_DOCS } from '../lib/db.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function toTitleCase(str) {
@@ -135,16 +135,17 @@ export function useFirestoreData(uid) {
 
   // ─── Initial load + one-time seed + real-time subscription ───────────────
   //
-  // With IndexedDB persistence enabled (firebase.js), the flow on page reload is:
-  //   1. onSnapshot fires immediately from local IndexedDB cache (~5ms)
-  //   2. fetchAllUserData (getDoc) also returns cached data quickly
-  //   3. Network confirmations arrive later and trigger live-sync updates
+  // FLOW:
+  //   1. Open subscription immediately → queues early snapshots (IndexedDB cache)
+  //   2. fetchAllUserData → network read (fast if auth token ready)
+  //      If network fails (PERMISSION_DENIED mid-refresh): tries IndexedDB
+  //      If BOTH fail: results[docName] = null  AND  _fetchErrors[docName] = true
+  //   3. Decide: newUser | existingUser | unknownUser (all errored, wait for sub)
   //
-  // We open the subscription FIRST and queue early snapshots (from step 1).
-  // After fetchAllUserData completes, we unlock the queue and flush it.
-  // The pending queue is our safety net: if fetchAllUserData fails for any reason
-  // (e.g. mid-refresh auth token → PERMISSION_DENIED), the IndexedDB snapshot
-  // in the queue still has the real data and we hydrate from that instead.
+  // CRITICAL RACE: on a second device with empty IndexedDB, if auth token is
+  // mid-refresh ALL fetches fail → all docs null → falsely treated as new user
+  // → seed written → DATA WIPED. Fix: track which docs errored vs. don't exist,
+  // and if ALL errored, wait for the subscription to deliver real data instead.
   useEffect(() => {
     if (!uid) return
     let cancelled = false
@@ -158,7 +159,6 @@ export function useFirestoreData(uid) {
     // are queued; afterwards they pass straight through.
     const unsub = subscribeToUserData(uid, (docName, data) => {
       if (!initCompleteRef.current) {
-        // Queue: keep only the latest snapshot per doc
         pendingUpdates[docName] = data
       } else {
         handleRemoteUpdate(docName, data)
@@ -166,35 +166,54 @@ export function useFirestoreData(uid) {
     })
 
     async function init() {
-      // 1. Fetch current Firestore state
-      const data = await fetchAllUserData(uid)
+      // 1. Fetch current Firestore state (tracks per-doc errors internally)
+      const { data, fetchErrors } = await fetchAllUserDataWithErrors(uid)
       if (cancelled) return
 
-      // Determine if this is a truly brand-new user.
-      // CRITICAL: Check ALL docs, not just 'sheets'.
-      // On a second device with no IndexedDB cache, getDoc() may fail with
-      // PERMISSION_DENIED (auth token mid-refresh) causing a cache fallback that
-      // returns null for all docs — making an existing user look like a new one.
-      // By checking if ANY doc has data, we avoid the catastrophic seed/wipe.
+      const allFetchesFailed = USER_DOCS.every((k) => fetchErrors[k])
       const hasFetchedAnyData = USER_DOCS.some(
-        (k) => data[k] !== null && data[k] !== undefined
+        (k) => !fetchErrors[k] && data[k] !== null && data[k] !== undefined
       )
-      const hasQueuedAnyData  = Object.keys(pendingUpdates).length > 0
-      const isNewUser         = !hasFetchedAnyData && !hasQueuedAnyData
+      const hasQueuedAnyData = Object.keys(pendingUpdates).length > 0
 
       console.log('[CMM] init:', {
         hasFetchedAnyData,
         hasQueuedAnyData,
-        isNewUser,
+        allFetchesFailed,
         pendingDocs: Object.keys(pendingUpdates),
         fetchedDocs: Object.keys(data).filter((k) => data[k] !== null),
+        erroredDocs: Object.keys(fetchErrors),
       })
 
+      if (allFetchesFailed && !hasQueuedAnyData) {
+        // ALL network + cache reads failed AND subscription has delivered nothing yet.
+        // This happens on a pristine second device when auth token is mid-refresh.
+        // Wait up to 3 seconds for the subscription to deliver real Firestore data.
+        console.log('[CMM] All fetches failed, waiting up to 3s for subscription data...')
+        await new Promise((resolve) => {
+          const deadline = setTimeout(resolve, 3000)
+          function checkQueue() {
+            if (Object.keys(pendingUpdates).length > 0 || cancelled) {
+              clearTimeout(deadline)
+              resolve()
+            } else {
+              setTimeout(checkQueue, 100)
+            }
+          }
+          checkQueue()
+        })
+        if (cancelled) return
+        console.log('[CMM] After wait, queuedDocs:', Object.keys(pendingUpdates))
+      }
+
+      // Re-evaluate after potential wait
+      const finalHasQueued = Object.keys(pendingUpdates).length > 0
+      const isNewUser = !hasFetchedAnyData && !finalHasQueued
+
       if (isNewUser) {
-        // Brand-new user — seed Firestore with a default sheet + profile marker.
-        // The profile doc is our reliable "user exists" signal for future logins
-        // on new devices where the auth token may be mid-refresh.
-        console.log('[CMM] SEEDING NEW USER — this should only happen once per account')
+        // Truly brand-new user — seed Firestore with default sheet + profile marker.
+        // Profile doc = reliable "user exists" signal for future logins on new devices.
+        console.log('[CMM] SEEDING NEW USER — this should only happen ONCE per account')
         const defaultSheetList = defaultSheets()
         const defaultActiveId  = defaultSheetList[0].id
         await patchUserData(uid, 'sheets', {
@@ -207,27 +226,26 @@ export function useFirestoreData(uid) {
         setActiveSheetId(defaultActiveId)
 
       } else {
-        // Existing user — hydrate from fetched data, then overlay queue
-        console.log('[CMM] EXISTING USER — hydrating from', hasFetchedAnyData ? 'network' : 'queue only')
+        // Existing user — hydrate from fetched data first, then overlay subscription queue
+        console.log('[CMM] EXISTING USER — hydrating from', hasFetchedAnyData ? 'network' : 'subscription queue')
         if (hasFetchedAnyData) {
           hydrateFromFetchedData(data)
         }
 
-        // Unlock BEFORE flushing so handleRemoteUpdate passes through
-        if (cancelled) return
-        initCompleteRef.current = true
-
-        // Flush queued IndexedDB snapshots (override if they have newer data)
-        const queueKeys = Object.keys(pendingUpdates)
-        if (queueKeys.length) {
-          console.log('[CMM] flushing queued snapshots:', queueKeys)
-          queueKeys.forEach((docName) => handleRemoteUpdate(docName, pendingUpdates[docName]))
+        // Flush queued subscription snapshots (these may have newer data than the fetch)
+        if (finalHasQueued) {
+          console.log('[CMM] flushing queued snapshots:', Object.keys(pendingUpdates))
+          // Unlock first so handleRemoteUpdate pass-through works
+          initCompleteRef.current = true
+          Object.keys(pendingUpdates).forEach((docName) =>
+            handleRemoteUpdate(docName, pendingUpdates[docName])
+          )
         }
       }
 
       if (cancelled) return
       setDataReady(true)
-      initCompleteRef.current = true
+      initCompleteRef.current = true  // ensure always set regardless of branch
     }
 
     init().catch(console.error)
@@ -237,9 +255,9 @@ export function useFirestoreData(uid) {
       initCompleteRef.current = false
       unsub?.()
       setDataReady(false)
-
     }
   }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // ════════════════════════════════════════════════════════════════════════════
   // NAMES API  (same surface as the old useNames hook)

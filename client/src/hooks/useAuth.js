@@ -9,12 +9,28 @@ import {
 } from '../utils/crypto.js'
 
 const HASH_KEY         = 'clearmind_password_hash'
-const NAMES_KEY        = 'clearmind_names'
+// Unused legacy key kept here only for migration cleanup
+const LOCK_DISABLED_KEY_LEGACY = 'clearmind_lock_disabled'
 const NOLOCK_KEY       = 'clearmind_nolock'        // '1' = on, '0' = off
-// LOCK_DISABLED_KEY removed — App Lock is now opt-in (disabled by default)
+// App Lock is now opt-in (disabled by default). Version stamp for migration.
+const APPLOCK_VERSION  = 'clearmind_applock_v2'    // bump to force-clear old lock state
 export const MAX_ATTEMPTS  = 3
 const LOCK_DELAY_MS = 15000        // 15 s after tab hidden before locking
 const NOLOCK_TTL_MS = 30 * 60000  // 30 min — then NoLock auto-disables
+
+// ─── One-time migration: clear old App Lock state from pre-v2 ─────────────────
+// Users who had App Lock enabled previously have a hash in localStorage that
+// would lock them out. Since App Lock is now opt-in, we wipe the old hash on
+// the first load of this version so everyone starts with a clean unlocked state.
+function migrateIfNeeded() {
+  if (localStorage.getItem(APPLOCK_VERSION) === '1') return // already migrated
+  // First load of v2 — clear all old App Lock residue
+  localStorage.removeItem(HASH_KEY)
+  localStorage.removeItem(LOCK_DISABLED_KEY_LEGACY)
+  localStorage.removeItem('clearmind_biometric_credential_id')
+  localStorage.setItem(APPLOCK_VERSION, '1')
+  console.log('[ClearMyMind] App Lock migration v2: cleared old lock state')
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function getStoredHash() {
@@ -35,6 +51,9 @@ function saveNoLockPref(enabled) {
 }
 
 export function useAuth() {
+  // Run migration exactly once on first render (synchronous, before any state reads)
+  migrateIfNeeded()
+
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
   const [biometricSupported, setBiometricSupported] = useState(false)
   // credSaved: true if a credential ID exists in localStorage (sync check)
@@ -150,10 +169,9 @@ export function useAuth() {
 
     if (next <= 0) {
       localStorage.removeItem(HASH_KEY)
-      localStorage.removeItem(NAMES_KEY)
       clearBiometric()
       setCredSaved(false)
-      setStatus('setup')
+      setStatus('unlocked')  // App Lock is opt-in — wipe hash and unlock
       setAttemptsLeft(MAX_ATTEMPTS)
       return { success: false, wiped: true }
     }

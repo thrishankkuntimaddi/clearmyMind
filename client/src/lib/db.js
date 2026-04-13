@@ -125,6 +125,43 @@ export async function fetchAllUserData(uid) {
   return results
 }
 
+// ─── fetchAllUserDataWithErrors — like fetchAllUserData but also returns error map ─
+/**
+ * Same as fetchAllUserData but also returns a `fetchErrors` map
+ * so callers can distinguish between docs that legitimately don't exist (null, no error)
+ * vs docs that failed to fetch due to auth/permission issues (null + fetchErrors[docName]=true).
+ * This prevents second-device fresh login from falsely detecting an "new user".
+ */
+export async function fetchAllUserDataWithErrors(uid) {
+  if (!db) return { data: {}, fetchErrors: {} }
+  console.log('[CMM] fetchAllUserDataWithErrors: starting for uid', uid)
+  const results = {}
+  const fetchErrors = {}
+  await Promise.all(
+    USER_DOCS.map(async (docName) => {
+      try {
+        const snap = await getDoc(docRef(uid, docName))
+        results[docName] = snap.exists() ? snap.data() : null
+        console.log(`[CMM] fetch(${docName}): network OK, exists=${snap.exists()}`)
+      } catch (netErr) {
+        console.warn(`[CMM] fetch(${docName}): network FAILED (${netErr.code}) — trying IndexedDB cache`)
+        try {
+          const cached = await getDocFromCache(docRef(uid, docName))
+          results[docName] = cached.exists() ? cached.data() : null
+          console.log(`[CMM] fetch(${docName}): cache fallback OK, exists=${cached.exists()}`)
+        } catch (cacheErr) {
+          console.error(`[CMM] fetch(${docName}): BOTH network AND cache failed:`, cacheErr.code)
+          results[docName] = null
+          fetchErrors[docName] = true  // mark as error (not "doc doesn't exist")
+        }
+      }
+    })
+  )
+  _cache = results
+  console.log('[CMM] fetchAllUserDataWithErrors done. erroredDocs=', Object.keys(fetchErrors))
+  return { data: results, fetchErrors }
+}
+
 // ─── subscribeToUserData — real-time cross-device sync ───────────────────────
 /**
  * Open onSnapshot listeners for all 6 user docs.
