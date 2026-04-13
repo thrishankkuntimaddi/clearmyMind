@@ -1,6 +1,10 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -23,7 +27,21 @@ if (isConfigured) {
   try {
     app  = initializeApp(firebaseConfig)
     auth = getAuth(app)
-    db   = getFirestore(app)
+
+    // Enable IndexedDB offline persistence so that on every page reload
+    // Firestore returns cached data INSTANTLY from the local IndexedDB store —
+    // even before the network round-trip completes. Without this, every refresh
+    // starts cold: getDoc goes to the network, and if the Firebase auth token
+    // is still being refreshed at that moment, the read gets PERMISSION_DENIED,
+    // returns null, and the app mistakenly seeds "new user" defaults, wiping data.
+    //
+    // persistentMultipleTabManager allows multiple open tabs to share the cache
+    // safely (one tab is the primary, others sync from it).
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    })
   } catch (e) {
     console.error('[ClearMyMind] Firebase init failed:', e)
   }
