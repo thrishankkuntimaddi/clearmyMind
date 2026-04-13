@@ -167,21 +167,24 @@ export function useFirestoreData(uid) {
 
     async function init() {
       // 1. Fetch current Firestore state
-      //    With IndexedDB persistence, this returns cached data near-instantly.
-      //    Without persistence (first ever load), this is a network call.
       const data = await fetchAllUserData(uid)
       if (cancelled) return
 
-      // 2a. Check if the queued IndexedDB snapshot also lacks a sheets doc.
-      //     We only seed defaults if BOTH fetchAllUserData AND the local cache
-      //     say there's no data. This prevents seeding when fetchAllUserData
-      //     fails (returns null) but the cache has real data.
       const fetchedHasSheets  = !!(data.sheets?.sheets?.length)
       const queuedHasSheets   = !!(pendingUpdates.sheets?.sheets?.length)
       const isNewUser         = !fetchedHasSheets && !queuedHasSheets
 
+      console.log('[CMM] init:', {
+        fetchedHasSheets,
+        queuedHasSheets,
+        isNewUser,
+        pendingDocs: Object.keys(pendingUpdates),
+        fetchedDocs: Object.keys(data).filter(k => data[k] !== null),
+      })
+
       if (isNewUser) {
         // Brand-new user — seed Firestore with a default sheet
+        console.log('[CMM] SEEDING NEW USER — this should only happen once per account')
         const defaultSheetList = defaultSheets()
         const defaultActiveId  = defaultSheetList[0].id
         await patchUserData(uid, 'sheets', {
@@ -189,35 +192,30 @@ export function useFirestoreData(uid) {
           activeSheetId: defaultActiveId,
         })
         if (cancelled) return
-        // Hydrate local state from defaults (don't wait for the echo)
         setSheets(defaultSheetList)
         setActiveSheetId(defaultActiveId)
 
       } else {
-        // Existing user — hydrate from whichever source has data.
-        // Prefer fetchAllUserData (authoritative), then overlay pending queue.
+        // Existing user — hydrate from fetched data, then overlay queue
+        console.log('[CMM] EXISTING USER — hydrating from', fetchedHasSheets ? 'network' : 'queue only')
         if (fetchedHasSheets) {
           hydrateFromFetchedData(data)
         }
 
-        // Unlock initCompleteRef BEFORE flushing so handleRemoteUpdate passes.
-        // Any pending snapshot that has NEWER data (e.g. from IndexedDB cache
-        // when fetchAllUserData was slow/failed) will now override correctly.
+        // Unlock BEFORE flushing so handleRemoteUpdate passes through
         if (cancelled) return
         initCompleteRef.current = true
 
-        // Flush queued snapshots — these may be from the local IndexedDB cache
-        // which holds data even when the network getDoc failed.
-        Object.entries(pendingUpdates).forEach(([docName, snap]) => {
-          handleRemoteUpdate(docName, snap)
-        })
+        // Flush queued IndexedDB snapshots (override if they have newer data)
+        const queueKeys = Object.keys(pendingUpdates)
+        if (queueKeys.length) {
+          console.log('[CMM] flushing queued snapshots:', queueKeys)
+          queueKeys.forEach((docName) => handleRemoteUpdate(docName, pendingUpdates[docName]))
+        }
       }
 
       if (cancelled) return
       setDataReady(true)
-
-      // Ensure initCompleteRef is true (already set above for existing users,
-      // set here for new users after seeding)
       initCompleteRef.current = true
     }
 

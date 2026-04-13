@@ -32,6 +32,7 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocFromCache,
   onSnapshot,
   serverTimestamp,
   deleteDoc,
@@ -87,24 +88,40 @@ export async function patchUserData(uid, docName, partial) {
 // ─── fetchAllUserData — initial read on boot ──────────────────────────────────
 /**
  * Read all 6 user documents in parallel. Hydrates the in-memory cache.
- * MUST be called before getCached() and before subscribeToUserData().
- * Returns { sheets, names, tags, groups, bag, profile } (null per missing doc).
+ * Uses a TWO-STAGE read:
+ *   Stage 1: Network read via getDoc() — authoritative, requires valid auth token.
+ *   Stage 2: If Stage 1 fails (e.g. auth token mid-refresh → PERMISSION_DENIED),
+ *            fall back to getDocFromCache() to read directly from IndexedDB.
+ * This makes cold-start on GitHub Pages safe even when Firebase Auth takes a
+ * moment to restore the session.
  */
 export async function fetchAllUserData(uid) {
   if (!db) return {}
+  console.log('[CMM] fetchAllUserData: starting for uid', uid)
   const results = {}
   await Promise.all(
     USER_DOCS.map(async (docName) => {
+      // Stage 1 — network read (authoritative, needs valid auth token)
       try {
         const snap = await getDoc(docRef(uid, docName))
         results[docName] = snap.exists() ? snap.data() : null
-      } catch (err) {
-        console.error(`[ClearMyMind] fetchAllUserData(${docName}) failed:`, err.code, err.message)
-        results[docName] = null
+        console.log(`[CMM] fetch(${docName}): network OK, exists=${snap.exists()}`)
+      } catch (netErr) {
+        console.warn(`[CMM] fetch(${docName}): network FAILED (${netErr.code}) — trying IndexedDB cache`)
+        // Stage 2 — IndexedDB fallback (works even when auth token is mid-refresh)
+        try {
+          const cached = await getDocFromCache(docRef(uid, docName))
+          results[docName] = cached.exists() ? cached.data() : null
+          console.log(`[CMM] fetch(${docName}): cache fallback OK, exists=${cached.exists()}`)
+        } catch (cacheErr) {
+          console.error(`[CMM] fetch(${docName}): BOTH network AND cache failed:`, cacheErr.code)
+          results[docName] = null
+        }
       }
     })
   )
-  _cache = results   // hydrate cache
+  _cache = results
+  console.log('[CMM] fetchAllUserData done. sheetsExists=', !!(results.sheets?.sheets?.length))
   return results
 }
 
