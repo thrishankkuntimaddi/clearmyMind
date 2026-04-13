@@ -15,48 +15,45 @@ Sometimes a name — a person, a thought, a word — keeps repeating in your hea
 
 ## Features
 
-### 🔐 Password Protection
-- **First launch** — set a password to protect your data
-- **Every launch** — unlock with your password before accessing the list
-- **Auto-lock** — the app locks itself 15 seconds after you switch tabs
-- **3 wrong attempts** — all data (names + password) is permanently wiped and the app resets
-- **Fingerprint / biometrics** — if your device supports it (Touch ID, Windows Hello), you'll get a one-tap unlock button automatically
+### 🔐 Two-Layer Security
+- **Firebase Auth** — cloud identity (email + password), email verification required
+- **App Lock** — device-level PIN/password with auto-lock on tab switch
+- **Biometrics** — Touch ID / Windows Hello support via WebAuthn
 - Passwords are hashed with SHA-256 via the Web Crypto API — never stored in plain text
+- 3 wrong attempts wipe all local data and reset the app
+
+### ☁️ Real-Time Cloud Sync (Firestore)
+- Data lives in **Firestore** under `users/{uid}/data/clearmind`
+- Real-time listener — changes sync instantly across all logged-in devices
+- Works offline (Firestore offline persistence)
 
 ### ⌨️ Keyboard-First Input
-- **Just start typing** — no need to click the input. Any key press on the page automatically focuses the input field
+- **Just start typing** — any key press auto-focuses the input
 - Press **Enter** to add a name
-- Names are automatically formatted in **Title Case** (`thrishank kuntimaddi` → `Thrishank Kuntimaddi`)
-- Duplicates are silently ignored (case-insensitive check)
-- Empty entries are ignored
+- Names are auto-formatted in **Title Case**
+- Duplicates are silently ignored (case-insensitive)
 
-### 📋 Auto-Sorted Grid
-- All 100 cells are always visible — **no scrolling ever**
-- Names fill **top to bottom** within each column, then move to the next column (column-major order)
-- Always sorted **A → Z** automatically
-- **5 columns × 20 rows = 100 slots**, all visible at once
+### 📋 Always-Visible Grid
+- All 100 cells visible — no scrolling ever
+- Column-major order, always sorted A → Z
+- 5 columns × 20 rows = 100 slots
 
-### ✏️ Inline Editing
-- Hover any name to reveal **✎ Edit** and **× Delete** buttons
-- Click **✎** to edit the name inline directly in the cell
-- Press **Enter** or click away to save — title-casing is applied automatically
-- Press **Escape** to cancel without saving
+### ✏️ Inline Editing & Organization
+- Hover a name → **✎ Edit** / **× Delete**
+- **Tags** — colour-code any name
+- **Groups** — organize names into named buckets
+- **Sheets** — multiple independent lists
+- **Bag** — park names without deleting them
 
-### 💾 Persistence
-- All names stored in `localStorage` under the key `clearmind_names`
-- Survives page refreshes (but requires password re-entry)
-- Zero backend — runs entirely in your browser
+### 📤 Copy / Load / Snapshot
+- **Copy** — all names to clipboard (one per line)
+- **Load** — paste a name list or a full snapshot
+- **Snapshot** — exports names + tags + groups + bag as a versioned block
 
-### 📤 Copy
-- **Copy** button copies all names to clipboard, one per line
-- Shows a `✓ Copied!` confirmation for 2 seconds
-
-### 🗑️ Clear All
-- Instantly wipes all names from the list and localStorage
-- No confirmation dialog — instant
-
-### 🔒 Manual Lock
-- Lock button (🔒) in the header locks the app immediately
+### 💣 Auto-Wipe Timer
+- When 10+ names are active, a countdown starts
+- On expiry → blast animation → congrats screen → list clears
+- **NoClear** toggle disables the timer
 
 ---
 
@@ -65,38 +62,43 @@ Sometimes a name — a person, a thought, a word — keeps repeating in your hea
 | Layer | Choice |
 |---|---|
 | Framework | React 19 (Vite) |
-| Styling | CSS Modules (vanilla CSS, no Tailwind) |
-| Auth | `localStorage` + SHA-256 (Web Crypto API) |
-| Biometrics | WebAuthn Platform Authenticator |
-| Persistence | `localStorage` |
-| Deployment | GitHub Pages via `gh-pages` |
+| Styling | CSS Modules (vanilla CSS) |
+| Auth | Firebase Auth + WebAuthn biometrics |
+| Persistence | Firestore (real-time, cross-device) |
+| CI/CD | GitHub Actions → GitHub Pages |
 
 **Zero heavy dependencies.** No Redux, no router, no UI library.
 
 ---
 
-## Project Structure
+## Repository Structure
 
 ```
-src/
-├── hooks/
-│   ├── useNames.js        # Names state, CRUD, sorting, persistence
-│   └── useAuth.js         # Auth state, lock timer, login, biometric
-├── components/
-│   ├── AuthScreen.jsx     # Setup + login screen
-│   ├── AuthScreen.module.css
-│   ├── NameInput.jsx      # Add-name input with global key capture
-│   ├── NameInput.module.css
-│   ├── NameGrid.jsx       # 5×20 column-major grid container
-│   ├── NameGrid.module.css
-│   ├── NameCell.jsx       # Individual cell with edit + delete
-│   └── NameCell.module.css
-├── utils/
-│   └── crypto.js          # SHA-256 hash, WebAuthn register + verify
-├── App.jsx                # Root — auth gate, copy, lock
-├── App.module.css
-├── index.css              # Global design tokens + resets
-└── main.jsx
+clearmyMind/
+├── client/                     ← React/Vite frontend
+│   ├── src/
+│   │   ├── components/         ← UI components (JSX + CSS Modules)
+│   │   ├── hooks/              ← Custom React hooks (auth, Firestore, etc.)
+│   │   ├── lib/                ← Firebase init (firebase.js, auth.js, db.js)
+│   │   ├── utils/              ← Crypto helpers, snapshot serialization
+│   │   ├── App.jsx             ← Root component + auth gate
+│   │   ├── App.module.css
+│   │   ├── index.css           ← Global tokens + resets
+│   │   └── main.jsx            ← React entry + SW registration
+│   ├── public/                 ← Static assets, PWA manifest, service worker
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js
+│   └── .env.example            ← Copy to .env and fill in Firebase credentials
+├── server/                     ← Placeholder for future backend (Firebase Admin, API)
+│   └── README.md
+├── .github/
+│   └── workflows/
+│       └── deploy.yml          ← CI: build client/ → deploy to gh-pages
+├── firestore.rules             ← Firestore security rules
+├── .gitignore
+├── package.json                ← Root convenience scripts (proxies to client/)
+└── README.md
 ```
 
 ---
@@ -106,7 +108,13 @@ src/
 ```bash
 git clone git@github.com:thrishankkuntimaddi/clearmyMind.git
 cd clearmyMind
-npm install
+
+# Copy and fill in Firebase credentials
+cp client/.env.example client/.env
+# Edit client/.env with your VITE_FIREBASE_* values
+
+# Install and run (from repo root — proxies into client/)
+npm install --prefix client
 npm run dev
 ```
 
@@ -114,26 +122,41 @@ Open [http://localhost:5173/clearmyMind/](http://localhost:5173/clearmyMind/)
 
 ---
 
-## Deploying
+## Environment Variables
 
-```bash
-npm run deploy
+Create `client/.env` (never commit this):
+
+```
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
 ```
 
-This builds the app and pushes it to the `gh-pages` branch automatically.  
-The live site updates at [thrishankkuntimaddi.github.io/clearmyMind](https://thrishankkuntimaddi.github.io/clearmyMind) within a minute or two.
+For production (GitHub Actions), add these as **repository secrets** in  
+`GitHub → Settings → Secrets and variables → Actions`.
+
+---
+
+## Deploying
+
+Deployment is fully automated via GitHub Actions:
+
+1. Push to `main`
+2. The workflow installs deps, builds `client/`, and pushes `client/dist/` to the `gh-pages` branch
+3. The live site updates at [thrishankkuntimaddi.github.io/clearmyMind](https://thrishankkuntimaddi.github.io/clearmyMind) within ~1 minute
 
 ---
 
 ## Security Model
 
-This is a **personal, local-only tool**. The security is designed to:
-
-- Keep data private from casual access (shared computers, leaving a screen unlocked)
-- Wipe data automatically after 3 failed login attempts
-- Never transmit any data anywhere — everything stays in your browser
-
-It is **not** designed to withstand determined attacks against a physically accessible device. For that level of security, use full-disk encryption.
+- **Cloud layer** — Firebase Auth (email + password, email verification)
+- **Device layer** — Local PIN with SHA-256 hashing via Web Crypto API
+- **Data layer** — Firestore rules enforce per-user access (`request.auth.uid == userId`)
+- **3 failed attempts** — wipes all local state and resets the device lock
 
 ---
 
@@ -141,10 +164,12 @@ It is **not** designed to withstand determined attacks against a physically acce
 
 | Key | Action |
 |---|---|
-| Any printable key | Auto-focuses the add input |
-| `Enter` (in add input) | Add name to list |
-| `Enter` (in edit cell) | Save edited name |
-| `Escape` (in edit cell) | Cancel edit |
+| Any printable key | Auto-focuses the smart search/add bar |
+| `Enter` (in bar) | Add name (if not a duplicate) |
+| `Enter` (in cell) | Save edited name |
+| `Escape` (in cell) | Cancel edit |
+| `Escape` (in bar) | Clear search query |
+| `⌘Z` / `Ctrl+Z` | Undo last add |
 
 ---
 
