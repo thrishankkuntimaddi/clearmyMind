@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { patchUserData, subscribeToUserData } from '../lib/db.js'
-import { migrateLocalStorageToFirestore } from '../lib/migration.js'
+import { patchUserData, subscribeToUserData, fetchAllUserData } from '../lib/db.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function toTitleCase(str) {
@@ -37,6 +36,10 @@ export function useFirestoreData(uid) {
   const bagRef                              = useRef([])
   const [noClear, _setNoClear]             = useState(true)
 
+  // Guard: while we are seeding Firestore for a brand-new user, ignore the
+  // subscription echoes of our own writes — they would wipe state immediately.
+  const initCompleteRef = useRef(false)
+
   // ── Synced setters — keep ref + state in lockstep ─────────────────────────
   const setSheets         = (v) => { sheetsRef.current        = v; _setSheets(v) }
   const setActiveSheetId  = (v) => { activeSheetIdRef.current = v; _setActiveSheetId(v) }
@@ -54,24 +57,32 @@ export function useFirestoreData(uid) {
   }, [uid])
 
   // ─── Hydrate state from fetched Firestore data ────────────────────────────
-  function hydrateState(data) {
-    if (data.sheets?.sheets) {
+  // Accepts a multi-doc data object (keyed by doc name) and applies whatever
+  // is present. Missing/null docs are skipped — defaults remain in place.
+  function hydrateFromFetchedData(data) {
+    if (data.sheets?.sheets?.length) {
       const s  = data.sheets.sheets
       const id = data.sheets.activeSheetId || s[0]?.id || 'sheet-1'
       setSheets(s)
       setActiveSheetId(id)
     }
     if (data.names) {
-      const { updatedAt: _u, ...rest } = data.names  // strip server timestamp
-      setNamesBySheet(rest)
+      const { updatedAt: _u, ...rest } = data.names
+      if (Object.keys(rest).length) setNamesBySheet(rest)
     }
     if (data.tags) {
       const { updatedAt: _u, ...rest } = data.tags
-      setTagsBySheet(rest)
+      if (Object.keys(rest).length) setTagsBySheet(rest)
     }
-    if (data.groups?.groups) setGroups(data.groups.groups)
-    if (data.bag?.bag)        setBag(data.bag.bag)
-    if (typeof data.profile?.noclear === 'boolean') _setNoClear(data.profile.noclear)
+    if (data.groups?.groups && Object.keys(data.groups.groups).length) {
+      setGroups(data.groups.groups)
+    }
+    if (data.bag?.bag?.length) {
+      setBag(data.bag.bag)
+    }
+    if (typeof data.profile?.noclear === 'boolean') {
+      _setNoClear(data.profile.noclear)
+    }
   }
 
   // ─── Handle remote update from onSnapshot ────────────────────────────────
@@ -79,35 +90,35 @@ export function useFirestoreData(uid) {
   // The server document is authoritative — ALWAYS replace state, never merge.
   // DO NOT guard with length checks — that silently drops clears/empty updates.
   function handleRemoteUpdate(docName, data) {
+    // Block subscription echoes until we have finished our own init writes.
+    // This prevents our seed writes from bouncing back and wiping state.
+    if (!initCompleteRef.current) return
+
     console.log('[ClearMyMind] REMOTE UPDATE:', docName, data)
     if (!data) return
 
     switch (docName) {
       case 'sheets': {
-        // Always apply both fields independently; they may arrive separately
-        const sheets      = data.sheets      ?? sheetsRef.current
-        const activeId    = data.activeSheetId ?? activeSheetIdRef.current
-        setSheets(sheets)
+        const s       = data.sheets      ?? sheetsRef.current
+        const activeId = data.activeSheetId ?? activeSheetIdRef.current
+        setSheets(s)
         setActiveSheetId(activeId)
         break
       }
       case 'names': {
-        // Strip server timestamp, then unconditionally replace — even for empty
         const { updatedAt: _u, ...rest } = data
-        setNamesBySheet(rest)   // direct replace, no merge
+        setNamesBySheet(rest)
         break
       }
       case 'tags': {
         const { updatedAt: _u, ...rest } = data
-        setTagsBySheet(rest)    // direct replace, no merge
+        setTagsBySheet(rest)
         break
       }
       case 'groups':
-        // groups field may be an empty object — still apply it
         setGroups(data.groups ?? {})
         break
       case 'bag':
-        // bag field may be an empty array — still apply it
         setBag(data.bag ?? [])
         break
       case 'profile':
@@ -116,22 +127,39 @@ export function useFirestoreData(uid) {
     }
   }
 
-  // ─── Initial load + migration + real-time subscription ───────────────────
+  // ─── Initial load + one-time seed + real-time subscription ───────────────
   useEffect(() => {
     if (!uid) return
     let cancelled = false
     let unsub = null
+    initCompleteRef.current = false
 
     async function init() {
-      // 1. Migration: runs once, returns current Firestore data (avoids double-fetch)
-      const data = await migrateLocalStorageToFirestore(uid)
+      // 1. Fetch current Firestore state
+      const data = await fetchAllUserData(uid)
       if (cancelled) return
 
-      // 2. Hydrate React state from the data migration already fetched
-      hydrateState(data)
+      // 2. If brand-new user (no sheets doc), seed Firestore with defaults
+      if (!data.sheets?.sheets?.length) {
+        const defaultSheetList = defaultSheets()
+        const defaultActiveId  = defaultSheetList[0].id
+        await patchUserData(uid, 'sheets', {
+          sheets: defaultSheetList,
+          activeSheetId: defaultActiveId,
+        })
+        // Hydrate from local defaults — don't wait for the snapshot echo
+        setSheets(defaultSheetList)
+        setActiveSheetId(defaultActiveId)
+      } else {
+        // 3. Hydrate state from fetched Firestore data
+        hydrateFromFetchedData(data)
+      }
+
+      if (cancelled) return
       setDataReady(true)
 
-      // 3. Subscribe to real-time remote changes
+      // 4. Now open the real-time subscription — init is done, echoes are safe
+      initCompleteRef.current = true
       unsub = subscribeToUserData(uid, handleRemoteUpdate)
     }
 
@@ -139,6 +167,7 @@ export function useFirestoreData(uid) {
 
     return () => {
       cancelled = true
+      initCompleteRef.current = false
       unsub?.()
       setDataReady(false)
     }
@@ -425,8 +454,7 @@ export function useFirestoreData(uid) {
     setActiveSheetId(newActive)
     patchRef.current('sheets', { sheets: next, activeSheetId: newActive })
 
-    // Clear names + tags for deleted sheet from state (no need to wipe from Firestore;
-    // the field becomes orphaned and is harmless)
+    // Clear names + tags for deleted sheet from state
     const newNames = { ...namesBySheetRef.current }
     delete newNames[id]
     setNamesBySheet(newNames)
@@ -466,8 +494,7 @@ export function useFirestoreData(uid) {
     setTagsBySheet(newTagState)
     patchRef.current('tags', { [fromSheetId]: srcTags })
 
-    // Remove name from all groups (groups are global, keeping cross-sheet group
-    // membership would cause orphan highlights)
+    // Remove name from all groups
     const nextGroups = {}
     Object.entries(groupsRef.current).forEach(([id, g]) => {
       nextGroups[id] = { ...g, members: g.members.filter((n) => n !== name) }

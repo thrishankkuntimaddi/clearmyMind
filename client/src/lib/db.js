@@ -8,36 +8,20 @@ import {
 } from 'firebase/firestore'
 import { db } from './firebase.js'
 
-// ─── In-memory cache (keyed by uid) ──────────────────────────────────────────
-const _cache = {}
-
 export const USER_DOCS = ['sheets', 'names', 'tags', 'groups', 'bag', 'profile']
 
 function docRef(uid, docName) {
   return doc(db, `users/${uid}/data/${docName}`)
 }
 
-// ─── Write to Firestore (merge) + update in-memory cache ─────────────────────
+// ─── Write to Firestore (merge) ───────────────────────────────────────────────
 export async function patchUserData(uid, docName, partial) {
   if (!uid || !db) return
-  if (!_cache[uid]) _cache[uid] = {}
-  _cache[uid][docName] = { ...(_cache[uid][docName] ?? {}), ...partial }
   try {
     await setDoc(docRef(uid, docName), { ...partial, updatedAt: serverTimestamp() }, { merge: true })
   } catch (e) {
     console.error(`[ClearMyMind] patchUserData(${docName}) failed:`, e.code, e.message)
   }
-}
-
-// ─── Read in-memory cache ─────────────────────────────────────────────────────
-export function getCached(uid, docName) {
-  return _cache[uid]?.[docName] ?? null
-}
-
-// ─── Seed cache from fetched data ────────────────────────────────────────────
-function setCached(uid, docName, data) {
-  if (!_cache[uid]) _cache[uid] = {}
-  _cache[uid][docName] = data
 }
 
 // ─── Initial fetch — reads all 6 user docs at once ───────────────────────────
@@ -48,9 +32,7 @@ export async function fetchAllUserData(uid) {
     USER_DOCS.map(async (docName) => {
       try {
         const snap = await getDoc(docRef(uid, docName))
-        const data = snap.exists() ? snap.data() : null
-        results[docName] = data
-        if (data) setCached(uid, docName, data)
+        results[docName] = snap.exists() ? snap.data() : null
       } catch (err) {
         console.error(`[ClearMyMind] fetchAllUserData(${docName}) failed:`, err.code, err.message)
         results[docName] = null
@@ -60,33 +42,32 @@ export async function fetchAllUserData(uid) {
   return results
 }
 
-// ─── Real-time subscription — fires for remote-confirmed changes ──────────────
-// Strategy:
+// ─── Real-time subscription ───────────────────────────────────────────────────
+// Fires onUpdate(docName, data) for every server-confirmed remote change.
+//
+// We use includeMetadataChanges so we can distinguish:
 //   hasPendingWrites = true  → our own optimistic write echoing back → SKIP
-//   hasPendingWrites = false → server has confirmed/sent data       → PROCESS
-//   (We no longer gate on fromCache because GitHub Pages' restricted ServiceWorker
-//    environment frequently marks legitimate server snapshots as fromCache=true,
-//    which was silently dropping all real-time updates in production.)
+//   hasPendingWrites = false → server has confirmed/sent data        → PROCESS
+//
+// The caller (useFirestoreData) additionally guards with initCompleteRef so
+// that our own seed writes for new users don't echo back and wipe state.
 export function subscribeToUserData(uid, onUpdate, onError) {
   if (!db) return () => {}
 
   const unsubs = USER_DOCS.map((docName) => {
-    console.log(`[ClearMyMind] Attaching onSnapshot listener: users/${uid}/data/${docName}`)
+    console.log(`[ClearMyMind] Attaching listener: users/${uid}/data/${docName}`)
     return onSnapshot(
       docRef(uid, docName),
       { includeMetadataChanges: true },
       (snap) => {
-        // Log every snapshot so we can debug sync in DevTools
-        console.log(`[ClearMyMind] snapshot(${docName}) hasPendingWrites=${snap.metadata.hasPendingWrites} exists=${snap.exists()}`)
-
-        // Skip our own optimistic writes echoing back from the SDK
+        // Skip our own optimistic writes echoing back from the local SDK cache
         if (snap.metadata.hasPendingWrites) return
 
-        // Doc doesn't exist yet — nothing to hydrate
+        // Doc doesn't exist yet — nothing to apply
         if (!snap.exists()) return
 
         const data = snap.data()
-        setCached(uid, docName, data)
+        console.log(`[ClearMyMind] snapshot(${docName}) fromCache=${snap.metadata.fromCache}`)
         onUpdate(docName, data)
       },
       (err) => {
@@ -95,6 +76,7 @@ export function subscribeToUserData(uid, onUpdate, onError) {
       }
     )
   })
+
   return () => unsubs.forEach((u) => u())
 }
 
@@ -102,5 +84,4 @@ export function subscribeToUserData(uid, onUpdate, onError) {
 export async function deleteAllUserData(uid) {
   if (!db) return
   await Promise.all(USER_DOCS.map((docName) => deleteDoc(docRef(uid, docName))))
-  delete _cache[uid]
 }
