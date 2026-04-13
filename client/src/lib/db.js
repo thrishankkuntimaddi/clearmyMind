@@ -129,11 +129,20 @@ export function subscribeToUserData(uid, onUpdate, onError) {
       docRef(uid, docName),
       { includeMetadataChanges: true },
       (snap) => {
-        if (snap.metadata.hasPendingWrites) return   // our own local write — skip
-        if (!snap.exists()) return                   // doc not yet created — skip
+        // Skip our own local optimistic writes echoing back — they would
+        // overwrite state we already applied synchronously.
+        if (snap.metadata.hasPendingWrites) return
+        if (!snap.exists()) return   // doc not yet created — skip
+
         const data = snap.data()
-        _cache[docName] = data                        // keep cache fresh
-        console.log(`[ClearMyMind] snapshot(${docName}) fromCache=${snap.metadata.fromCache}`)
+        _cache[docName] = data       // keep cache fresh
+        console.log(
+          `[ClearMyMind] snapshot(${docName}) fromCache=${snap.metadata.fromCache}`,
+          data
+        )
+        // Allow BOTH fromCache=true (offline/local Firestore cache, e.g. on
+        // GitHub Pages before the network round-trip completes) and
+        // fromCache=false (confirmed server snapshot for cross-device sync).
         onUpdate(docName, data)
       },
       (err) => {

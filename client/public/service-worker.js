@@ -1,89 +1,82 @@
 // ClearMyMind — Service Worker
-// Cache-first strategy: serve cached assets instantly, fall back to network
+// Strategy:
+//   • Navigation requests (HTML) → Network-first so users always get the latest app shell
+//   • Static assets (JS/CSS with hash in filename) → Cache-first (immutable)
+//   • Everything else → Network-first with cache fallback
 
-const CACHE_NAME = 'clearmymind-v1'
+// Bump this version on every deploy to evict old stale caches immediately.
+const CACHE_VERSION = 'v3'
+const CACHE_NAME = `clearmymind-${CACHE_VERSION}`
 
-// Core shell assets to pre-cache on install
-const PRECACHE_URLS = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-]
-
-// ── Install: pre-cache the app shell ─────────────────────────────────────────
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_URLS)
-    })
-  )
-  // Activate immediately without waiting for old sw to die
+// ── Install: skip waiting so new SW activates right away ─────────────────────
+self.addEventListener('install', () => {
   self.skipWaiting()
 })
 
-// ── Activate: remove old caches ───────────────────────────────────────────────
+// ── Activate: remove ALL old caches on upgrade ───────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
           .map((name) => caches.delete(name))
       )
-    })
+    )
   )
   // Take control of all open clients immediately
   self.clients.claim()
 })
 
-// ── Fetch: cache-first, fall back to network ──────────────────────────────────
+// ── Fetch handler ─────────────────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
   // Only handle GET requests
   if (event.request.method !== 'GET') return
 
-  // Skip cross-origin requests (fonts, analytics, etc.)
   const url = new URL(event.request.url)
+
+  // Skip cross-origin requests (Firebase, Google Fonts, Analytics, etc.)
   if (url.origin !== self.location.origin) return
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Serve from cache; also refresh in background (stale-while-revalidate)
-        const fetchPromise = fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              const cloned = networkResponse.clone()
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, cloned)
-              })
-            }
-            return networkResponse
-          })
-          .catch(() => {/* ignore network errors in background refresh */})
+  const isNavigation = event.request.mode === 'navigate'
 
-        // eslint-disable-next-line no-unused-vars
-        void fetchPromise
-        return cachedResponse
-      }
+  // ── Hashed static assets (e.g. index-Abc123.js) → cache-first (immutable) ──
+  const isHashedAsset = /\/assets\/[^/]+-[A-Za-z0-9]{8,}\.(js|css)$/.test(url.pathname)
 
-      // Not in cache — fetch from network and cache it
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
-          return networkResponse
-        }
-        const cloned = networkResponse.clone()
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, cloned)
+  if (isHashedAsset) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached
+        return fetch(event.request).then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+          }
+          return response
         })
-        return networkResponse
-      }).catch(() => {
-        // If all else fails for a navigation request, serve index.html
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html')
-        }
       })
-    })
+    )
+    return
+  }
+
+  // ── Navigation + everything else → Network-first ─────────────────────────
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+        }
+        return response
+      })
+      .catch(() => {
+        // Offline fallback: serve from cache
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached
+          // For navigations, serve app shell so React can boot offline
+          if (isNavigation) return caches.match('./index.html')
+        })
+      })
   )
 })
+

@@ -134,14 +134,40 @@ export function useFirestoreData(uid) {
   }
 
   // ─── Initial load + one-time seed + real-time subscription ───────────────
+  //
+  // RACE FIX (GitHub Pages):
+  // On production, the Firestore SDK fires the first onSnapshot callback from
+  // its local IndexedDB cache almost instantly — often BEFORE fetchAllUserData
+  // resolves over the network. The old code opened the subscription AFTER init,
+  // so that fast local snapshot was always missed (initCompleteRef was still
+  // false). Result: the app saw "no sheets doc" → seeded brand-new defaults →
+  // wiped all real saved data on every refresh.
+  //
+  // Fix: open the subscription first, queue early snapshots in a pending map,
+  // then flush them AFTER fetchAllUserData completes so the real Firestore data
+  // (whether from cache or network) always wins.
   useEffect(() => {
     if (!uid) return
     let cancelled = false
-    let unsub = null
     initCompleteRef.current = false
 
+    // Queue for snapshots that arrive before init finishes
+    const pendingUpdates = {}   // { docName: data }
+
+    // Pre-open the subscription immediately so we catch the very first
+    // local-cache snapshot. Updates received before initCompleteRef is true
+    // are queued; afterwards they pass straight to handleRemoteUpdate.
+    const unsub = subscribeToUserData(uid, (docName, data) => {
+      if (!initCompleteRef.current) {
+        // Queue: keep only the latest snapshot per doc
+        pendingUpdates[docName] = data
+      } else {
+        handleRemoteUpdate(docName, data)
+      }
+    })
+
     async function init() {
-      // 1. Fetch current Firestore state
+      // 1. Fetch current Firestore state (may be slower than the SW snapshot)
       const data = await fetchAllUserData(uid)
       if (cancelled) return
 
@@ -153,20 +179,31 @@ export function useFirestoreData(uid) {
           sheets: defaultSheetList,
           activeSheetId: defaultActiveId,
         })
-        // Hydrate from local defaults — don't wait for the snapshot echo
+        // Hydrate from local defaults — discard any queued snapshots for
+        // new users (they'd be empty anyway, or echoes of our seed writes)
         setSheets(defaultSheetList)
         setActiveSheetId(defaultActiveId)
       } else {
-        // 3. Hydrate state from fetched Firestore data
+        // 3. Hydrate from fetched data first (authoritative), then overlay
+        //    any queued snapshots that arrived from the local Firestore cache
+        //    while we were waiting for fetchAllUserData to resolve.
         hydrateFromFetchedData(data)
+
+        // Flush queued local-cache snapshots (they may be more up-to-date
+        // than fetchAllUserData if another device wrote between page loads)
+        if (!cancelled) {
+          Object.entries(pendingUpdates).forEach(([docName, snap]) => {
+            handleRemoteUpdate(docName, snap)
+          })
+        }
       }
 
       if (cancelled) return
       setDataReady(true)
 
-      // 4. Now open the real-time subscription — init is done, echoes are safe
+      // 4. Unlock the real-time subscription — future snapshots now pass
+      //    directly to handleRemoteUpdate (cross-device sync)
       initCompleteRef.current = true
-      unsub = subscribeToUserData(uid, handleRemoteUpdate)
     }
 
     init().catch(console.error)
