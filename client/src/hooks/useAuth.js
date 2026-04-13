@@ -11,7 +11,7 @@ import {
 const HASH_KEY         = 'clearmind_password_hash'
 const NAMES_KEY        = 'clearmind_names'
 const NOLOCK_KEY       = 'clearmind_nolock'        // '1' = on, '0' = off
-const LOCK_DISABLED_KEY = 'clearmind_lock_disabled' // '1' = App Lock bypassed
+// LOCK_DISABLED_KEY removed — App Lock is now opt-in (disabled by default)
 export const MAX_ATTEMPTS  = 3
 const LOCK_DELAY_MS = 15000        // 15 s after tab hidden before locking
 const NOLOCK_TTL_MS = 30 * 60000  // 30 min — then NoLock auto-disables
@@ -43,10 +43,10 @@ export function useAuth() {
   const [noLock, setNoLock] = useState(() => readNoLockPref())
 
   // 'setup' | 'locked' | 'unlocked'
-  // If lock is explicitly disabled (user turned it off in Settings), always unlock
+  // App Lock is OPT-IN. Default to 'unlocked' unless a password hash exists,
+  // meaning the user previously enabled App Lock from Settings.
   const [status, setStatus] = useState(() => {
-    if (localStorage.getItem(LOCK_DISABLED_KEY) === '1') return 'unlocked'
-    return getStoredHash() ? 'locked' : 'setup'
+    return getStoredHash() ? 'locked' : 'unlocked'
   })
 
   // After password setup, we offer the user to register fingerprint
@@ -110,7 +110,6 @@ export function useAuth() {
   const setupPassword = useCallback(async (password) => {
     const hash = await hashPassword(password)
     localStorage.setItem(HASH_KEY, hash)
-    localStorage.removeItem(LOCK_DISABLED_KEY) // clear any previous disable flag
     setStatus('unlocked')
     setAttemptsLeft(MAX_ATTEMPTS)
     // Offer fingerprint registration if the device supports it
@@ -194,15 +193,14 @@ export function useAuth() {
     const hash = await hashPassword(password)
     if (hash !== getStoredHash()) return { success: false, error: 'Incorrect password.' }
     localStorage.removeItem(HASH_KEY)
-    localStorage.setItem(LOCK_DISABLED_KEY, '1')
     clearBiometric()
     setCredSaved(false)
+    setStatus('unlocked')   // immediately unlock without requiring re-login
     return { success: true }
   }, [])
 
   // ─── Enable App Lock (Settings) — sends user to Setup flow
   const enableLock = useCallback(() => {
-    localStorage.removeItem(LOCK_DISABLED_KEY)
     setStatus('setup')
   }, [])
 
@@ -222,7 +220,7 @@ export function useAuth() {
     login,
     loginBiometric,
     lock,
-    // Settings-facing
+    // Settings-facing — isLockEnabled: true only if user enabled App Lock
     isLockEnabled: !!getStoredHash(),
     changePassword,
     disableLock,

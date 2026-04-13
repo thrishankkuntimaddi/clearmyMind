@@ -8,6 +8,7 @@ import {
   signOut,
   deleteAccount as fbDeleteAccount,
 } from '../lib/auth.js'
+import { stopListening } from '../lib/db.js'
 
 // authState: 'not-configured' | 'loading' | 'unauthenticated' | 'unverified' | 'authenticated'
 export function useFirebaseAuth() {
@@ -75,6 +76,12 @@ export function useFirebaseAuth() {
     if (!user) return { success: false }
     try {
       await fbDeleteAccount(user)
+      // Explicitly clear Firestore listeners + cache, then force the UI back to
+      // the login screen. We don't rely solely on onAuthStateChanged because
+      // Firebase may not fire it reliably after deleteUser in all browsers.
+      stopListening()
+      setUser(null)
+      setAuthState('unauthenticated')
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }

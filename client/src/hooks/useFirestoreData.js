@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { patchUserData, subscribeToUserData, fetchAllUserData } from '../lib/db.js'
+import { patchUserData, subscribeToUserData, fetchAllUserData, USER_DOCS } from '../lib/db.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function toTitleCase(str) {
@@ -170,20 +170,30 @@ export function useFirestoreData(uid) {
       const data = await fetchAllUserData(uid)
       if (cancelled) return
 
-      const fetchedHasSheets  = !!(data.sheets?.sheets?.length)
-      const queuedHasSheets   = !!(pendingUpdates.sheets?.sheets?.length)
-      const isNewUser         = !fetchedHasSheets && !queuedHasSheets
+      // Determine if this is a truly brand-new user.
+      // CRITICAL: Check ALL docs, not just 'sheets'.
+      // On a second device with no IndexedDB cache, getDoc() may fail with
+      // PERMISSION_DENIED (auth token mid-refresh) causing a cache fallback that
+      // returns null for all docs — making an existing user look like a new one.
+      // By checking if ANY doc has data, we avoid the catastrophic seed/wipe.
+      const hasFetchedAnyData = USER_DOCS.some(
+        (k) => data[k] !== null && data[k] !== undefined
+      )
+      const hasQueuedAnyData  = Object.keys(pendingUpdates).length > 0
+      const isNewUser         = !hasFetchedAnyData && !hasQueuedAnyData
 
       console.log('[CMM] init:', {
-        fetchedHasSheets,
-        queuedHasSheets,
+        hasFetchedAnyData,
+        hasQueuedAnyData,
         isNewUser,
         pendingDocs: Object.keys(pendingUpdates),
-        fetchedDocs: Object.keys(data).filter(k => data[k] !== null),
+        fetchedDocs: Object.keys(data).filter((k) => data[k] !== null),
       })
 
       if (isNewUser) {
-        // Brand-new user — seed Firestore with a default sheet
+        // Brand-new user — seed Firestore with a default sheet + profile marker.
+        // The profile doc is our reliable "user exists" signal for future logins
+        // on new devices where the auth token may be mid-refresh.
         console.log('[CMM] SEEDING NEW USER — this should only happen once per account')
         const defaultSheetList = defaultSheets()
         const defaultActiveId  = defaultSheetList[0].id
@@ -191,14 +201,15 @@ export function useFirestoreData(uid) {
           sheets: defaultSheetList,
           activeSheetId: defaultActiveId,
         })
+        await patchUserData(uid, 'profile', { noclear: true, createdAt: Date.now() })
         if (cancelled) return
         setSheets(defaultSheetList)
         setActiveSheetId(defaultActiveId)
 
       } else {
         // Existing user — hydrate from fetched data, then overlay queue
-        console.log('[CMM] EXISTING USER — hydrating from', fetchedHasSheets ? 'network' : 'queue only')
-        if (fetchedHasSheets) {
+        console.log('[CMM] EXISTING USER — hydrating from', hasFetchedAnyData ? 'network' : 'queue only')
+        if (hasFetchedAnyData) {
           hydrateFromFetchedData(data)
         }
 
