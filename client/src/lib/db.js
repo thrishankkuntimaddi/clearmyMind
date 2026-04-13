@@ -72,13 +72,15 @@ export function getCached(docName, fallback = null) {
  * Also updates the in-memory cache for any subsequent getCached() calls.
  */
 export async function patchUserData(uid, docName, partial) {
-  if (!uid || !db) return
+  if (!uid || !db) return false
   // Update cache synchronously so getCached() is always fresh
   _cache[docName] = { ...(_cache[docName] ?? {}), ...partial }
   try {
     await setDoc(docRef(uid, docName), { ...partial, updatedAt: serverTimestamp() }, { merge: true })
+    return true
   } catch (e) {
     console.error(`[ClearMyMind] patchUserData(${docName}) failed:`, e.code, e.message)
+    return false
   }
 }
 

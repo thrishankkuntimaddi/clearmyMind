@@ -20,6 +20,9 @@ function defaultSheets() {
 // all public functions can return meaningful values without async state reads.
 export function useFirestoreData(uid) {
   const [dataReady, setDataReady] = useState(false)
+  // Write-error toast — set when a Firestore write silently fails
+  const [writeError, _setWriteError] = useState(null)
+  const clearWriteError = useCallback(() => _setWriteError(null), [])
 
   // ── State + shadow refs (refs let callbacks read current values synchronously)
   const [sheets, _setSheets]               = useState(defaultSheets())
@@ -52,7 +55,10 @@ export function useFirestoreData(uid) {
   const patchRef = useRef(null)
   useEffect(() => {
     patchRef.current = uid
-      ? (docName, partial) => patchUserData(uid, docName, partial)
+      ? async (docName, partial) => {
+          const ok = await patchUserData(uid, docName, partial)
+          if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
+        }
       : () => {}
   }, [uid])
 
@@ -454,14 +460,19 @@ export function useFirestoreData(uid) {
     setActiveSheetId(newActive)
     patchRef.current('sheets', { sheets: next, activeSheetId: newActive })
 
-    // Clear names + tags for deleted sheet from state
+    // Clear names + tags for deleted sheet — update local state AND Firestore.
+    // We write empty values (not deleteField) because patchUserData uses merge:true.
+    // The orphaned sheetId key in Firestore becomes [] / {} so it never restores
+    // ghost data on next login or cross-device load.
     const newNames = { ...namesBySheetRef.current }
     delete newNames[id]
     setNamesBySheet(newNames)
+    patchRef.current('names', { [id]: [] })   // zero out in Firestore
 
     const newTags = { ...tagsBySheetRef.current }
     delete newTags[id]
     setTagsBySheet(newTags)
+    patchRef.current('tags', { [id]: {} })    // zero out in Firestore
   }, [])
 
   const switchSheet = useCallback((id) => {
@@ -527,6 +538,7 @@ export function useFirestoreData(uid) {
   // ─── Public API ───────────────────────────────────────────────────────────
   return {
     dataReady,
+    writeError, clearWriteError,
 
     // Sheets
     sheets, activeSheetId,

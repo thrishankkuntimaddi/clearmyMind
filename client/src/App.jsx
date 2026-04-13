@@ -52,6 +52,7 @@ export default function App() {
     groups, createGroup, renameGroup, deleteGroup, clearGroups,
     addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups,
     noClear, toggleNoClear,
+    writeError, clearWriteError,
   } = useFirestoreData(user?.uid)
 
   // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
@@ -631,6 +632,23 @@ export default function App() {
       {/* ── Mobile drop toast ── */}
       {toast && (
         <div className={styles.toast} role="status" aria-live="polite">{toast}</div>
+      )}
+
+      {/* ── Write-error toast (Firestore failure) ── */}
+      {writeError && (
+        <div
+          className={styles.toast}
+          style={{ background: 'rgba(220,38,38,0.96)', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}
+          role="alert"
+          aria-live="assertive"
+        >
+          <span style={{ flex: 1 }}>{writeError}</span>
+          <button
+            onClick={clearWriteError}
+            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}
+            aria-label="Dismiss error"
+          >×</button>
+        </div>
       )}
 
       {/* ── Load modal ── */}
