@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { fetchAllUserData, patchUserData, subscribeToUserData } from '../lib/db.js'
+import { patchUserData, subscribeToUserData } from '../lib/db.js'
 import { migrateLocalStorageToFirestore } from '../lib/migration.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,7 +75,9 @@ export function useFirestoreData(uid) {
   }
 
   // ─── Handle remote update from onSnapshot ────────────────────────────────
-  // Only called for changes originating from OTHER devices (hasPendingWrites filtered in db.js)
+  // Called for every server-confirmed snapshot (hasPendingWrites=false).
+  // This includes both remote device writes AND our own writes confirmed by server.
+  // The server document is authoritative — set state directly from it.
   function handleRemoteUpdate(docName, data) {
     if (!data) return
     switch (docName) {
@@ -84,13 +86,14 @@ export function useFirestoreData(uid) {
         if (data.activeSheetId) setActiveSheetId(data.activeSheetId)
         break
       case 'names': {
+        // Strip the server timestamp field, then set names as server truth
         const { updatedAt: _u, ...rest } = data
-        setNamesBySheet({ ...namesBySheetRef.current, ...rest })
+        if (Object.keys(rest).length > 0) setNamesBySheet(rest)
         break
       }
       case 'tags': {
         const { updatedAt: _u, ...rest } = data
-        setTagsBySheet({ ...tagsBySheetRef.current, ...rest })
+        setTagsBySheet(rest)
         break
       }
       case 'groups':
@@ -112,19 +115,15 @@ export function useFirestoreData(uid) {
     let unsub = null
 
     async function init() {
-      // 1. One-time localStorage → Firestore migration
-      await migrateLocalStorageToFirestore(uid)
+      // 1. Migration: runs once, returns current Firestore data (avoids double-fetch)
+      const data = await migrateLocalStorageToFirestore(uid)
       if (cancelled) return
 
-      // 2. Fetch all current data
-      const data = await fetchAllUserData(uid)
-      if (cancelled) return
-
-      // 3. Hydrate React state
+      // 2. Hydrate React state from the data migration already fetched
       hydrateState(data)
       setDataReady(true)
 
-      // 4. Subscribe to real-time remote changes
+      // 3. Subscribe to real-time remote changes
       unsub = subscribeToUserData(uid, handleRemoteUpdate)
     }
 

@@ -56,11 +56,13 @@ export async function fetchAllUserData(uid) {
   return results
 }
 
-// ─── Real-time subscription — fires for REMOTE changes only ──────────────────
-// Rules:
-//   fromCache = true AND hasPendingWrites = false → stale local cache read → skip
-//   hasPendingWrites = true                       → our own optimistic write  → skip
-//   fromCache = false, hasPendingWrites = false   → confirmed server write    → process
+// ─── Real-time subscription — fires for remote-confirmed changes ──────────────
+// Strategy:
+//   hasPendingWrites = true  → our own optimistic write echoing back → SKIP
+//   hasPendingWrites = false → server has confirmed/sent data       → PROCESS
+//   (We no longer gate on fromCache because GitHub Pages' restricted ServiceWorker
+//    environment frequently marks legitimate server snapshots as fromCache=true,
+//    which was silently dropping all real-time updates in production.)
 export function subscribeToUserData(uid, onUpdate, onError) {
   if (!db) return () => {}
 
@@ -69,10 +71,8 @@ export function subscribeToUserData(uid, onUpdate, onError) {
       docRef(uid, docName),
       { includeMetadataChanges: true },
       (snap) => {
-        // Skip local optimistic writes echoing back
+        // Skip our own optimistic writes echoing back from the SDK
         if (snap.metadata.hasPendingWrites) return
-        // Skip reads that come purely from local cache (not yet confirmed by server)
-        if (snap.metadata.fromCache) return
 
         const data = snap.data() ?? null
         setCached(uid, docName, data)
@@ -80,7 +80,6 @@ export function subscribeToUserData(uid, onUpdate, onError) {
       },
       (err) => {
         console.error(`[ClearMyMind] onSnapshot(${docName}) error:`, err.code, err.message)
-        // Propagate to caller so the UI can react (e.g. show a reconnect notice)
         onError?.(docName, err)
       }
     )

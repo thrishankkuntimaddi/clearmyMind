@@ -1,9 +1,18 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each user can only read/write their own data — no expiry
-    match /users/{userId}/data/{document} {
+
+    // ── PASSI ecosystem — all apps (ClearMyMind, EveryDay, etc.) ─────────────
+    // Each authenticated user can only read/write their own data tree.
+    // This covers all sub-paths: /users/{uid}/data/*, /users/{uid}/plans/*, etc.
+    match /users/{userId}/{rest=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+
+    // ── Add shared / public collection rules below if needed ─────────────────
+    // Example: allow authenticated users to read a shared "config" doc
+    // match /config/{doc} {
+    //   allow read: if request.auth != null;
+    // }
   }
 }
