@@ -22,7 +22,11 @@ export async function patchUserData(uid, docName, partial) {
   if (!uid || !db) return
   if (!_cache[uid]) _cache[uid] = {}
   _cache[uid][docName] = { ...(_cache[uid][docName] ?? {}), ...partial }
-  await setDoc(docRef(uid, docName), { ...partial, updatedAt: serverTimestamp() }, { merge: true })
+  try {
+    await setDoc(docRef(uid, docName), { ...partial, updatedAt: serverTimestamp() }, { merge: true })
+  } catch (e) {
+    console.error(`[ClearMyMind] patchUserData(${docName}) failed:`, e.code, e.message)
+  }
 }
 
 // ─── Read in-memory cache ─────────────────────────────────────────────────────
@@ -66,15 +70,22 @@ export async function fetchAllUserData(uid) {
 export function subscribeToUserData(uid, onUpdate, onError) {
   if (!db) return () => {}
 
-  const unsubs = USER_DOCS.map((docName) =>
-    onSnapshot(
+  const unsubs = USER_DOCS.map((docName) => {
+    console.log(`[ClearMyMind] Attaching onSnapshot listener: users/${uid}/data/${docName}`)
+    return onSnapshot(
       docRef(uid, docName),
       { includeMetadataChanges: true },
       (snap) => {
+        // Log every snapshot so we can debug sync in DevTools
+        console.log(`[ClearMyMind] snapshot(${docName}) hasPendingWrites=${snap.metadata.hasPendingWrites} exists=${snap.exists()}`)
+
         // Skip our own optimistic writes echoing back from the SDK
         if (snap.metadata.hasPendingWrites) return
 
-        const data = snap.data() ?? null
+        // Doc doesn't exist yet — nothing to hydrate
+        if (!snap.exists()) return
+
+        const data = snap.data()
         setCached(uid, docName, data)
         onUpdate(docName, data)
       },
@@ -83,7 +94,7 @@ export function subscribeToUserData(uid, onUpdate, onError) {
         onError?.(docName, err)
       }
     )
-  )
+  })
   return () => unsubs.forEach((u) => u())
 }
 

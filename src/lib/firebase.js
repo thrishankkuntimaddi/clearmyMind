@@ -31,4 +31,3 @@ if (isConfigured) {
 
 export { auth, db }
 export default app
-

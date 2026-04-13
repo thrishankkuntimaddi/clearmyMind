@@ -76,31 +76,39 @@ export function useFirestoreData(uid) {
 
   // ─── Handle remote update from onSnapshot ────────────────────────────────
   // Called for every server-confirmed snapshot (hasPendingWrites=false).
-  // This includes both remote device writes AND our own writes confirmed by server.
-  // The server document is authoritative — set state directly from it.
+  // The server document is authoritative — ALWAYS replace state, never merge.
+  // DO NOT guard with length checks — that silently drops clears/empty updates.
   function handleRemoteUpdate(docName, data) {
+    console.log('[ClearMyMind] REMOTE UPDATE:', docName, data)
     if (!data) return
+
     switch (docName) {
-      case 'sheets':
-        if (data.sheets)        setSheets(data.sheets)
-        if (data.activeSheetId) setActiveSheetId(data.activeSheetId)
+      case 'sheets': {
+        // Always apply both fields independently; they may arrive separately
+        const sheets      = data.sheets      ?? sheetsRef.current
+        const activeId    = data.activeSheetId ?? activeSheetIdRef.current
+        setSheets(sheets)
+        setActiveSheetId(activeId)
         break
+      }
       case 'names': {
-        // Strip the server timestamp field, then set names as server truth
+        // Strip server timestamp, then unconditionally replace — even for empty
         const { updatedAt: _u, ...rest } = data
-        if (Object.keys(rest).length > 0) setNamesBySheet(rest)
+        setNamesBySheet(rest)   // direct replace, no merge
         break
       }
       case 'tags': {
         const { updatedAt: _u, ...rest } = data
-        setTagsBySheet(rest)
+        setTagsBySheet(rest)    // direct replace, no merge
         break
       }
       case 'groups':
-        if (data.groups) setGroups(data.groups)
+        // groups field may be an empty object — still apply it
+        setGroups(data.groups ?? {})
         break
       case 'bag':
-        if (data.bag) setBag(data.bag)
+        // bag field may be an empty array — still apply it
+        setBag(data.bag ?? [])
         break
       case 'profile':
         if (typeof data.noclear === 'boolean') _setNoClear(data.noclear)
