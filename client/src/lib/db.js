@@ -81,7 +81,6 @@ export async function patchUserData(uid, docName, partial) {
  */
 export async function fetchAllUserDataWithErrors(uid) {
   if (!db) return { data: {}, fetchErrors: {} }
-  console.log('[CMM] fetchAllUserDataWithErrors: starting for uid', uid)
   const results = {}
   const fetchErrors = {}
   await Promise.all(
@@ -89,13 +88,11 @@ export async function fetchAllUserDataWithErrors(uid) {
       try {
         const snap = await getDoc(docRef(uid, docName))
         results[docName] = snap.exists() ? snap.data() : null
-        console.log(`[CMM] fetch(${docName}): network OK, exists=${snap.exists()}`)
       } catch (netErr) {
         console.warn(`[CMM] fetch(${docName}): network FAILED (${netErr.code}) — trying IndexedDB cache`)
         try {
           const cached = await getDocFromCache(docRef(uid, docName))
           results[docName] = cached.exists() ? cached.data() : null
-          console.log(`[CMM] fetch(${docName}): cache fallback OK, exists=${cached.exists()}`)
         } catch (cacheErr) {
           console.error(`[CMM] fetch(${docName}): BOTH network AND cache failed:`, cacheErr.code)
           results[docName] = null
@@ -105,7 +102,6 @@ export async function fetchAllUserDataWithErrors(uid) {
     })
   )
   _cache = results
-  console.log('[CMM] fetchAllUserDataWithErrors done. erroredDocs=', Object.keys(fetchErrors))
   return { data: results, fetchErrors }
 }
 
@@ -126,7 +122,6 @@ export function subscribeToUserData(uid, onUpdate, onError) {
   if (!db) return () => {}
 
   const unsubs = USER_DOCS.map((docName) => {
-    console.log(`[ClearMyMind] Attaching listener: users/${uid}/data/${docName}`)
     return onSnapshot(
       docRef(uid, docName),
       { includeMetadataChanges: true },
@@ -144,10 +139,6 @@ export function subscribeToUserData(uid, onUpdate, onError) {
 
         const data = snap.data()
         _cache[docName] = data       // keep cache fresh
-        console.log(
-          `[ClearMyMind] snapshot(${docName}) fromCache=${snap.metadata.fromCache}`,
-          data
-        )
         onUpdate(docName, data)
       },
       (err) => {
@@ -171,7 +162,6 @@ export function stopListening() {
   _unsubs.forEach((u) => u())
   _unsubs = []
   _cache  = {}
-  console.log('[ClearMyMind] Firestore listeners stopped, cache cleared.')
 }
 
 // ─── deleteAllUserData — wipe all docs (account deletion) ───────────────────
@@ -183,5 +173,4 @@ export async function deleteAllUserData(uid) {
   if (!db) return
   await Promise.all(USER_DOCS.map((docName) => deleteDoc(docRef(uid, docName))))
   _cache = {}
-  console.log(`[ClearMyMind] All Firestore data deleted for uid: ${uid}`)
 }

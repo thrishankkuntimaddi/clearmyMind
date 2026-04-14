@@ -97,8 +97,6 @@ export function useFirestoreData(uid) {
     // Block subscription echoes until we have finished our own init writes.
     // This prevents our seed writes from bouncing back and wiping state.
     if (!initCompleteRef.current) return
-
-    console.log('[ClearMyMind] REMOTE UPDATE:', docName, data)
     if (!data) return
 
     switch (docName) {
@@ -174,20 +172,10 @@ export function useFirestoreData(uid) {
       )
       const hasQueuedAnyData = Object.keys(pendingUpdates).length > 0
 
-      console.log('[CMM] init:', {
-        hasFetchedAnyData,
-        hasQueuedAnyData,
-        allFetchesFailed,
-        pendingDocs: Object.keys(pendingUpdates),
-        fetchedDocs: Object.keys(data).filter((k) => data[k] !== null),
-        erroredDocs: Object.keys(fetchErrors),
-      })
-
       if (allFetchesFailed && !hasQueuedAnyData) {
         // ALL network + cache reads failed AND subscription has delivered nothing yet.
         // This happens on a pristine second device when auth token is mid-refresh.
         // Wait up to 3 seconds for the subscription to deliver real Firestore data.
-        console.log('[CMM] All fetches failed, waiting up to 3s for subscription data...')
         await new Promise((resolve) => {
           const deadline = setTimeout(resolve, 3000)
           function checkQueue() {
@@ -201,7 +189,6 @@ export function useFirestoreData(uid) {
           checkQueue()
         })
         if (cancelled) return
-        console.log('[CMM] After wait, queuedDocs:', Object.keys(pendingUpdates))
       }
 
       // Re-evaluate after potential wait
@@ -211,7 +198,7 @@ export function useFirestoreData(uid) {
       if (isNewUser) {
         // Truly brand-new user — seed Firestore with default sheet + profile marker.
         // Profile doc = reliable "user exists" signal for future logins on new devices.
-        console.log('[CMM] SEEDING NEW USER — this should only happen ONCE per account')
+        console.warn('[CMM] SEEDING NEW USER — this should only happen ONCE per account')
         const defaultSheetList = defaultSheets()
         const defaultActiveId  = defaultSheetList[0].id
         await patchUserData(uid, 'sheets', {
@@ -225,14 +212,12 @@ export function useFirestoreData(uid) {
 
       } else {
         // Existing user — hydrate from fetched data first, then overlay subscription queue
-        console.log('[CMM] EXISTING USER — hydrating from', hasFetchedAnyData ? 'network' : 'subscription queue')
         if (hasFetchedAnyData) {
           hydrateFromFetchedData(data)
         }
 
         // Flush queued subscription snapshots (these may have newer data than the fetch)
         if (finalHasQueued) {
-          console.log('[CMM] flushing queued snapshots:', Object.keys(pendingUpdates))
           // Unlock first so handleRemoteUpdate pass-through works
           initCompleteRef.current = true
           Object.keys(pendingUpdates).forEach((docName) =>
