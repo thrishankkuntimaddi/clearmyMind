@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
+import { getAuth, setPersistence, indexedDBLocalPersistence } from 'firebase/auth'
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -27,6 +27,16 @@ if (isConfigured) {
   try {
     app  = initializeApp(firebaseConfig)
     auth = getAuth(app)
+
+    // Explicitly use IndexedDB persistence for auth sessions.
+    // This is more reliable than the default (browserLocalStorage) in PWA/GitHub Pages
+    // contexts where the service worker or browser storage policies can silently drop
+    // localStorage entries. IndexedDB survives service worker updates and PWA installs.
+    // NOTE: setPersistence is async but we don't await it here intentionally — the auth
+    // SDK applies it before any onAuthStateChanged fires, so this is safe.
+    setPersistence(auth, indexedDBLocalPersistence).catch((e) => {
+      console.warn('[ClearMyMind] Could not set IndexedDB persistence, falling back to default:', e.code)
+    })
 
     // Enable IndexedDB offline persistence so that on every page reload
     // Firestore returns cached data INSTANTLY from the local IndexedDB store —

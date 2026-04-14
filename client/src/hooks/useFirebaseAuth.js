@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { isConfigured } from '../lib/firebase.js'
 import {
   onAuthChange,
@@ -10,18 +10,37 @@ import {
 } from '../lib/auth.js'
 import { stopListening } from '../lib/db.js'
 
+// How long to wait after receiving a null auth event before treating it as a real sign-out.
+// Firebase fires onAuthStateChanged(null) transiently while it refreshes the ID token
+// (which expires every 1 hour). Without this grace period, a mid-refresh null event
+// immediately redirects the user to the login screen even though they are still logged in.
+const NULL_AUTH_GRACE_MS = 900
+
 // authState: 'not-configured' | 'loading' | 'unauthenticated' | 'unverified' | 'authenticated'
 export function useFirebaseAuth() {
   const [authState, setAuthState] = useState(isConfigured ? 'loading' : 'not-configured')
   const [user, setUser]           = useState(null)
 
+  // Ref to the pending "sign-out" timer so we can cancel it if the user comes back
+  const signOutTimer = useRef(null)
+
   useEffect(() => {
     // Guard: skip listener if Firebase was not configured at build time
     if (!isConfigured) return
     const unsub = onAuthChange((firebaseUser) => {
+      // Cancel any pending deferred sign-out — a new event arrived
+      clearTimeout(signOutTimer.current)
+
       if (!firebaseUser) {
-        setUser(null)
-        setAuthState('unauthenticated')
+        // ── Transient null guard ──────────────────────────────────────────
+        // Firebase emits null briefly while refreshing the ID token (every ~1 h).
+        // We wait NULL_AUTH_GRACE_MS before treating null as a real sign-out.
+        // If a non-null event arrives within that window, the timer is cancelled
+        // above and the user stays logged in.
+        signOutTimer.current = setTimeout(() => {
+          setUser(null)
+          setAuthState('unauthenticated')
+        }, NULL_AUTH_GRACE_MS)
       } else if (!firebaseUser.emailVerified) {
         setUser(firebaseUser)
         setAuthState('unverified')
@@ -30,7 +49,10 @@ export function useFirebaseAuth() {
         setAuthState('authenticated')
       }
     })
-    return unsub
+    return () => {
+      clearTimeout(signOutTimer.current)
+      unsub()
+    }
   }, [])
 
   // ─── Sign in ──────────────────────────────────────────────────────────────
