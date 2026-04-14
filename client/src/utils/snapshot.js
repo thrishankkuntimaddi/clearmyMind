@@ -86,16 +86,6 @@ export function parseSnapshot(text) {
   return parseText(text)
 }
 
-// ── Summary counts for UI preview ─────────────────────────────────────────────
-export function snapshotInfo(parsed) {
-  return {
-    names:  parsed.names.length,
-    groups: Object.keys(parsed.groups).length,
-    bag:    parsed.bag.length,
-    colors: Object.keys(parsed.tags).length,
-  }
-}
-
 // ── Human-readable text fallback ─────────────────────────────────────────────
 function parseText(text) {
   const r = { names: [], groups: {}, bag: [], tags: {} }

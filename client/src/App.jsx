@@ -44,13 +44,12 @@ export default function App() {
   // ─── Firestore data (replaces all localStorage data hooks) ───────────────
   // uid is undefined when not authenticated — hook returns empty defaults safely
   const {
-    dataReady,
     sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
     names, addName, editName, removeName, clearAll, reloadFromStorage,
-    tags, setTag, renameTag, removeTag, clearTags, mergeTags,
+    tags, setTag, clearTags, mergeTags,
     bag, addToBag, removeFromBag, clearBag, mergeBag,
-    groups, createGroup, renameGroup, deleteGroup, clearGroups,
-    addToGroup, removeFromGroup, removeNameFromAllGroups, renameInGroups, mergeGroups,
+    groups, createGroup, renameGroup, deleteGroup,
+    addToGroup, removeFromGroup, mergeGroups,
     noClear, toggleNoClear,
     writeError, clearWriteError,
   } = useFirestoreData(user?.uid)

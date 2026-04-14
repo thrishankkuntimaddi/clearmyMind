@@ -20,8 +20,11 @@ export default function AuthScreen({
 
   // Reset form when mode changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPassword('')
+     
     setConfirm('')
+     
     setError('')
     setTimeout(() => inputRef.current?.focus(), 80)
   }, [mode])

@@ -34,10 +34,14 @@ export default function MobileDragOverlay({
 
   // Reset state when a new drag starts or drag ends
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (draggingName && initialPos) setGhostPos(initialPos)
     if (!draggingName) {
+       
       setHoverTarget(null)
+       
       setHoverGroupId(null)
+       
       setHoverSheetId(null)
       didSwitchGroups.current = false
     }

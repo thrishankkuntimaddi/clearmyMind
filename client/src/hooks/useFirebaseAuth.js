@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { isConfigured, auth } from '../lib/firebase.js'
+import { isConfigured } from '../lib/firebase.js'
 import {
   onAuthChange,
   signInWithEmail,

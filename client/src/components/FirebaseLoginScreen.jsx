@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef } from 'react'
 import styles from './FirebaseLoginScreen.module.css'
 
 export default function FirebaseLoginScreen({ onSignIn, onSignUp }) {

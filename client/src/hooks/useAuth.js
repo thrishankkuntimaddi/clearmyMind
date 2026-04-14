@@ -55,7 +55,6 @@ export function useAuth() {
   migrateIfNeeded()
 
   const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
-  const [biometricSupported, setBiometricSupported] = useState(false)
   // credSaved: true if a credential ID exists in localStorage (sync check)
   const [credSaved, setCredSaved] = useState(() => hasStoredCredential())
 
@@ -75,12 +74,6 @@ export function useAuth() {
   const lockTimer   = useRef(null)
   const noLockTimer = useRef(null)
 
-  // Check biometric support once on mount
-  useEffect(() => {
-    isBiometricAvailable().then(setBiometricSupported)
-    // Sync the credSaved flag from localStorage on mount
-    setCredSaved(hasStoredCredential())
-  }, [])
 
   // ─── Start 30-min timer when NoLock is ON after login ─────────────────────
   useEffect(() => {
@@ -143,10 +136,7 @@ export function useAuth() {
   const enrollBiometric = useCallback(async () => {
     setBioSetupState('registering')
     const ok = await registerBiometric()
-    if (ok) {
-      setCredSaved(true)
-      setBiometricSupported(true)
-    }
+    if (ok) setCredSaved(true)
     setBioSetupState('idle')
     return ok
   }, [])
@@ -229,7 +219,6 @@ export function useAuth() {
     biometricAvailable: credSaved && status === 'locked',
     // Fingerprint ENROLL offer: show after setup when device supports it
     bioSetupState,      // 'idle' | 'offering' | 'registering'
-    biometricSupported,
     noLock,
     toggleNoLock,
     setupPassword,

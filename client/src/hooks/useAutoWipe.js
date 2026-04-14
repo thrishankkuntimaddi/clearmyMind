@@ -52,6 +52,7 @@ export function useAutoWipe(nameCount) {
     if (nameCount >= WARN_THRESHOLD && p === 'idle') {
       // Cross 80 → show Wait button (no timer yet)
       phaseRef.current = 'pending'
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPhase('pending')
     } else if (nameCount >= CRITICAL_THRESHOLD && p === 'counting') {
       // Cross 90 while timer is running → escalate to 10s
@@ -61,7 +62,9 @@ export function useAutoWipe(nameCount) {
       // Dropped back below 80 (user deleted) → cancel
       stopTimer()
       phaseRef.current = 'idle'
+       
       setPhase('idle')
+       
       setCountdown(0)
     }
   }, [nameCount, startTimer, stopTimer])
@@ -95,6 +98,5 @@ export function useAutoWipe(nameCount) {
     handleWait,
     handleBlastComplete,
     handleCongratsClose,
-    isWarning: ['pending', 'counting', 'critical'].includes(phase),
   }
 }

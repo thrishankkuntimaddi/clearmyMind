@@ -15,11 +15,9 @@ function defaultSheets() {
 }
 
 // ─── useFirestoreData ─────────────────────────────────────────────────────────
-// Single hook that owns ALL app data (replaces useNames, useSheets, useTags,
-// useBag, useGroups). Uses refs for synchronous reads inside callbacks so that
-// all public functions can return meaningful values without async state reads.
+// Single hook that owns ALL app data. Uses refs for synchronous reads inside
+// callbacks so all public functions return meaningful values without async reads.
 export function useFirestoreData(uid) {
-  const [dataReady, setDataReady] = useState(false)
   // Write-error toast — set when a Firestore write silently fails
   const [writeError, _setWriteError] = useState(null)
   const clearWriteError = useCallback(() => _setWriteError(null), [])
@@ -244,7 +242,6 @@ export function useFirestoreData(uid) {
       }
 
       if (cancelled) return
-      setDataReady(true)
       initCompleteRef.current = true  // ensure always set regardless of branch
     }
 
@@ -254,13 +251,11 @@ export function useFirestoreData(uid) {
       cancelled = true
       initCompleteRef.current = false
       unsub?.()
-      setDataReady(false)
     }
   }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
 
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // NAMES API  (same surface as the old useNames hook)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NAMES API
   // ════════════════════════════════════════════════════════════════════════════
   const names = sortNames(namesBySheet[activeSheetId] ?? [])
 
@@ -473,24 +468,6 @@ export function useFirestoreData(uid) {
     patchRef.current('groups', { groups: next })
   }, [])
 
-  const removeNameFromAllGroups = useCallback((name) => {
-    const next = {}
-    Object.entries(groupsRef.current).forEach(([id, g]) => {
-      next[id] = { ...g, members: g.members.filter((n) => n !== name) }
-    })
-    setGroups(next)
-    patchRef.current('groups', { groups: next })
-  }, [])
-
-  const renameInGroups = useCallback((oldName, newName) => {
-    const next = {}
-    Object.entries(groupsRef.current).forEach(([id, g]) => {
-      next[id] = { ...g, members: g.members.map((n) => (n === oldName ? newName : n)) }
-    })
-    setGroups(next)
-    patchRef.current('groups', { groups: next })
-  }, [])
-
   const mergeGroups = useCallback((incoming) => {
     const next = { ...groupsRef.current }
     let i = 0
@@ -617,7 +594,6 @@ export function useFirestoreData(uid) {
 
   // ─── Public API ───────────────────────────────────────────────────────────
   return {
-    dataReady,
     writeError, clearWriteError,
 
     // Sheets
@@ -636,8 +612,7 @@ export function useFirestoreData(uid) {
 
     // Groups
     groups, createGroup, renameGroup, deleteGroup, clearGroups,
-    addToGroup, removeFromGroup, removeNameFromAllGroups,
-    renameInGroups, mergeGroups,
+    addToGroup, removeFromGroup, mergeGroups,
 
     // Prefs
     noClear, toggleNoClear,
