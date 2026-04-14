@@ -20,7 +20,7 @@
  *   users/{uid}/data/profile  — { noclear, emailVerified, … }
  *
  * PUBLIC API:
- *   patchUserData(uid, docName, partial)  → write (merge) to one doc
+ *   patchUserData(uid, docName, partial)  → write (setDoc merge) to one doc
  *   fetchAllUserDataWithErrors(uid)       → read all 6 docs at boot (tracks per-doc errors)
  *   subscribeToUserData(uid, onUpdate)    → real-time cross-device sync
  *   deleteAllUserData(uid)               → wipe all docs (account deletion)
@@ -112,9 +112,10 @@ export async function fetchAllUserDataWithErrors(uid) {
 // ─── subscribeToUserData — real-time cross-device sync ───────────────────────
 /**
  * Open onSnapshot listeners for all 6 user docs.
- * Fires onUpdate(docName, data) ONLY for server-confirmed changes:
- *   hasPendingWrites = true  → local write echoing back → SKIP
- *   hasPendingWrites = false → remote device update    → CALL onUpdate
+ * Fires onUpdate(docName, data) ONLY for server-confirmed (fromCache=false) changes:
+ *   hasPendingWrites = true  → local write echoing back     → SKIP
+ *   fromCache = true         → stale IndexedDB echo mid-op  → SKIP
+ *   fromCache = false        → remote device / server ack   → CALL onUpdate
  *
  * The caller (useFirestoreData) guards initCompleteRef so that our own
  * seed writes for brand-new users don't bounce back and wipe state.
@@ -135,15 +136,18 @@ export function subscribeToUserData(uid, onUpdate, onError) {
         if (snap.metadata.hasPendingWrites) return
         if (!snap.exists()) return   // doc not yet created — skip
 
+        // Skip cache snapshots during live operation. The initial boot
+        // already handles IndexedDB via getDocFromCache(). A fromCache=true
+        // snapshot fired mid-session is stale local state that would revert
+        // optimistic deletes/removes before Firestore confirms the write.
+        if (snap.metadata.fromCache) return
+
         const data = snap.data()
         _cache[docName] = data       // keep cache fresh
         console.log(
           `[ClearMyMind] snapshot(${docName}) fromCache=${snap.metadata.fromCache}`,
           data
         )
-        // Allow BOTH fromCache=true (offline/local Firestore cache, e.g. on
-        // GitHub Pages before the network round-trip completes) and
-        // fromCache=false (confirmed server snapshot for cross-device sync).
         onUpdate(docName, data)
       },
       (err) => {
