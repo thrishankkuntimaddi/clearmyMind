@@ -91,6 +91,14 @@ export function useFirebaseAuth() {
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const signOutUser = useCallback(async () => {
     stopListening()  // clear Firestore listeners + cache before signing out
+    // Clear device-local App Lock state so the next account/user on this
+    // device starts fresh with no lock enforced.
+    ;[
+      'clearmind_password_hash',
+      'clearmind_cred_id',
+      'clearmind_nolock',
+      'clearmind_applock_v2',
+    ].forEach((k) => localStorage.removeItem(k))
     await signOut()
   }, [])
 

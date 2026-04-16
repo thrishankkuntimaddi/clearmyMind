@@ -42,12 +42,29 @@ export default function LoadModal({ onLoad, onClose }) {
         {isSnap && (
           <div className={styles.snapPreview}>
             <div className={styles.snapRow}>
-              <span className={styles.snapItem}>📋 {snap.names.length} <em>names</em></span>
-              <span className={styles.snapItem}>📂 {Object.keys(snap.groups).length} <em>groups</em></span>
-              <span className={styles.snapItem}>🎒 {snap.bag.length} <em>in bag</em></span>
-              <span className={styles.snapItem}>🎨 {Object.keys(snap.tags).length} <em>colors</em></span>
+              <span className={styles.snapItem}>
+                🗂 {snap.sheets?.length ?? 1} <em>sheet{(snap.sheets?.length ?? 1) !== 1 ? 's' : ''}</em>
+              </span>
+              <span className={styles.snapItem}>
+                📋 {snap.sheets?.reduce((s, sh) => s + (snap.namesBySheet?.[sh.id]?.length ?? 0), 0) ?? snap.names?.length ?? 0} <em>names</em>
+              </span>
+              <span className={styles.snapItem}>📂 {Object.keys(snap.groups ?? {}).length} <em>groups</em></span>
+              <span className={styles.snapItem}>🎒 {(snap.bag ?? []).length} <em>in bag</em></span>
+              <span className={styles.snapItem}>
+                🎨 {snap.sheets?.reduce((s, sh) => s + Object.keys(snap.tagsBySheet?.[sh.id] ?? {}).length, 0) ?? Object.keys(snap.tags ?? {}).length} <em>colors</em>
+              </span>
             </div>
-            {Object.values(snap.groups).length > 0 && (
+            {/* Per-sheet breakdown */}
+            {snap.sheets && snap.sheets.length > 1 && (
+              <div className={styles.snapGroups}>
+                {snap.sheets.map((sh) => (
+                  <span key={sh.id} className={styles.snapGroupTag}>
+                    {sh.name}: {snap.namesBySheet?.[sh.id]?.length ?? 0}
+                  </span>
+                ))}
+              </div>
+            )}
+            {Object.values(snap.groups ?? {}).length > 0 && (
               <div className={styles.snapGroups}>
                 {Object.values(snap.groups).map((g, i) => (
                   <span key={i} className={styles.snapGroupTag}>

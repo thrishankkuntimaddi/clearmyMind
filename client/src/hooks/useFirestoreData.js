@@ -569,13 +569,151 @@ export function useFirestoreData(uid) {
     })
   }, [])
 
-  // ── Combined clearAll: clears current sheet names+tags AND global bag+groups
+  // ── clearAll: wipes only the ACTIVE sheet's names + tags.
+  // Bag and groups are cross-sheet and are NOT touched here.
   const clearAll = useCallback(() => {
     clearAllNames()
     clearTags()
+  }, [clearAllNames, clearTags])
+
+  // ── clearEverything: full nuclear reset used by Settings → "Reset all data".
+  // Wipes EVERY sheet's names+tags, plus bag and groups.
+  const clearEverything = useCallback(() => {
+    // Clear names + tags for every sheet
+    const emptyNames = {}
+    const emptyTags  = {}
+    sheetsRef.current.forEach(s => { emptyNames[s.id] = []; emptyTags[s.id] = {} })
+    setNamesBySheet(emptyNames)
+    setTagsBySheet(emptyTags)
+    patchRef.current('names', emptyNames)
+    patchRef.current('tags', emptyTags)
+    // Clear bag and groups
     clearBag()
     clearGroups()
-  }, [clearAllNames, clearTags, clearBag, clearGroups])
+  }, [clearBag, clearGroups])
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // FULL SNAPSHOT RESTORE  (multi-sheet, groups, bag, tags)
+  // ══════════════════════════════════════════════════════════════════════════
+  /**
+   * Atomically restore a full v2 snapshot from parseSnapshot().
+   * ALL existing data is replaced (sheets, names, tags, groups, bag).
+   *
+   * Strategy:
+   *  - Merge snapshot sheets into existing sheet list by ID.
+   *    Sheets that already exist keep their ID (data just updated).
+   *    New sheets from the snapshot are appended.
+   *  - Name/tag maps are written per-sheet directly.
+   *  - Groups and bag are fully replaced.
+   *
+   * Returns a summary { sheetsRestored, totalNames, groups, bag, colors }.
+   */
+  const restoreFullSnapshot = useCallback((parsed) => {
+    const snapSheets      = parsed.sheets      ?? []
+    const snapNamesBySheet = parsed.namesBySheet ?? {}
+    const snapTagsBySheet  = parsed.tagsBySheet  ?? {}
+    const snapGroups       = parsed.groups        ?? {}
+    const snapBag          = parsed.bag           ?? []
+
+    // ── 1. Merge sheet list ───────────────────────────────────────────────────────────
+    // Build a final sheet list: existing sheets stay in order; snapshot sheets
+    // with IDs not yet in the list are appended.
+    const existingIds = new Set(sheetsRef.current.map(s => s.id))
+    const mergedSheets = [...sheetsRef.current]
+    const sheetIdMap = {}  // snapSheetId -> finalSheetId (in case of remapping)
+
+    snapSheets.forEach((snapSheet) => {
+      if (existingIds.has(snapSheet.id)) {
+        // ID collision: reuse existing sheet with same ID (just overwrite data)
+        sheetIdMap[snapSheet.id] = snapSheet.id
+        // Rename sheet to match snapshot name
+        const idx = mergedSheets.findIndex(s => s.id === snapSheet.id)
+        if (idx !== -1) mergedSheets[idx] = { ...mergedSheets[idx], name: snapSheet.name }
+      } else {
+        // New sheet from snapshot — append it
+        mergedSheets.push({ id: snapSheet.id, name: snapSheet.name })
+        sheetIdMap[snapSheet.id] = snapSheet.id
+        existingIds.add(snapSheet.id)
+      }
+    })
+
+    const newActiveId = mergedSheets[0]?.id ?? activeSheetIdRef.current
+
+    setSheets(mergedSheets)
+    setActiveSheetId(newActiveId)
+    patchRef.current('sheets', { sheets: mergedSheets, activeSheetId: newActiveId })
+
+    // ── 2. Write names per sheet ──────────────────────────────────────────────────────
+    const newNamesBySheet = { ...namesBySheetRef.current }
+    const namesFirestorePatch = {}
+    let totalNames = 0
+
+    snapSheets.forEach((snapSheet) => {
+      const finalId   = sheetIdMap[snapSheet.id]
+      const incoming  = snapNamesBySheet[snapSheet.id] ?? []
+      const existing  = newNamesBySheet[finalId] ?? []
+      // Merge: add incoming names not already present (case-insensitive)
+      const lowerExisting = new Set(existing.map(n => n.toLowerCase()))
+      const merged = [...existing]
+      incoming.forEach(n => { if (!lowerExisting.has(n.toLowerCase())) { merged.push(n); lowerExisting.add(n.toLowerCase()) } })
+      const sorted = [...merged].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+      newNamesBySheet[finalId] = sorted
+      namesFirestorePatch[finalId] = sorted
+      totalNames += sorted.length
+    })
+
+    setNamesBySheet(newNamesBySheet)
+    patchRef.current('names', namesFirestorePatch)
+
+    // ── 3. Write tags per sheet ─────────────────────────────────────────────────────
+    const newTagsBySheet = { ...tagsBySheetRef.current }
+    const tagsFirestorePatch = {}
+    let totalColors = 0
+
+    snapSheets.forEach((snapSheet) => {
+      const finalId  = sheetIdMap[snapSheet.id]
+      const incoming = snapTagsBySheet[snapSheet.id] ?? {}
+      const existing = newTagsBySheet[finalId] ?? {}
+      const merged   = { ...existing, ...incoming }  // snapshot tags win on conflict
+      newTagsBySheet[finalId] = merged
+      tagsFirestorePatch[finalId] = merged
+      totalColors += Object.keys(incoming).length
+    })
+
+    setTagsBySheet(newTagsBySheet)
+    patchRef.current('tags', tagsFirestorePatch)
+
+    // ── 4. Merge groups ─────────────────────────────────────────────────────────────
+    const nextGroups = { ...groupsRef.current }
+    let gi = 0
+    Object.values(snapGroups).forEach((g) => {
+      const existEntry = Object.entries(nextGroups).find(([, eg]) => eg.name === g.name)
+      if (existEntry) {
+        const [eid, eg] = existEntry
+        const merged = [...eg.members]
+        g.members.forEach(m => { if (!merged.includes(m)) merged.push(m) })
+        nextGroups[eid] = { ...eg, members: merged }
+      } else {
+        nextGroups[`g-snap-${Date.now()}-${gi++}`] = { name: g.name, members: [...g.members] }
+      }
+    })
+    setGroups(nextGroups)
+    patchRef.current('groups', { groups: nextGroups })
+
+    // ── 5. Merge bag ──────────────────────────────────────────────────────────────────
+    const nextBag = [...bagRef.current]
+    snapBag.forEach(item => { if (!nextBag.includes(item)) nextBag.push(item) })
+    setBag(nextBag)
+    patchRef.current('bag', { bag: nextBag })
+
+    return {
+      sheetsRestored: snapSheets.length,
+      totalNames,
+      groups:  Object.keys(snapGroups).length,
+      bag:     snapBag.length,
+      colors:  totalColors,
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Public API ───────────────────────────────────────────────────────────
   return {
@@ -585,11 +723,13 @@ export function useFirestoreData(uid) {
     sheets, activeSheetId,
     addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
 
-    // Names
+    // Names (active sheet) + raw multi-sheet maps for full snapshot
     names, addName, editName, removeName,
-    clearAll, reloadFromStorage,
+    clearAll, clearEverything, reloadFromStorage,
+    namesBySheet: namesBySheetRef.current,
+    tagsBySheet:  tagsBySheetRef.current,
 
-    // Tags
+    // Tags (active sheet)
     tags, setTag, renameTag, removeTag, clearTags, mergeTags,
 
     // Bag
@@ -598,6 +738,9 @@ export function useFirestoreData(uid) {
     // Groups
     groups, createGroup, renameGroup, deleteGroup, clearGroups,
     addToGroup, removeFromGroup, mergeGroups,
+
+    // Full snapshot restore (all sheets at once)
+    restoreFullSnapshot,
 
     // Prefs
     noClear, toggleNoClear,

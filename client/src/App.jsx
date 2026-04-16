@@ -3,7 +3,8 @@ import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useFirebaseAuth } from './hooks/useFirebaseAuth.js'
 import { useFirestoreData } from './hooks/useFirestoreData.js'
-import { buildSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
+import { buildFullSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
+import { stopListening } from './lib/db.js'
 import AuthScreen from './components/AuthScreen.jsx'
 import FirebaseLoginScreen from './components/FirebaseLoginScreen.jsx'
 import VerifyEmailScreen from './components/VerifyEmailScreen.jsx'
@@ -33,19 +34,46 @@ export default function App() {
     signIn, signUp, signOutUser, resendVerification, deleteAccount,
   } = useFirebaseAuth()
 
-  // ─── App Lock (local device security — unchanged) ─────────────────────────
+  // ─── Security wipe callback ────────────────────────────────────────────────
+  // Called by useAuth when 3 consecutive wrong passwords are entered.
+  // App.jsx owns this because it has access to both the db layer (stopListening)
+  // and the Firebase auth layer (signOutUser).
+  //
+  // Flow:  stop Firestore → clear device lock state → sign out → hard reload
+  //
+  // The hard reload is intentional: it guarantees zero React state, zero
+  // Firestore IndexedDB cache, and zero in-memory data survives the wipe.
+  async function handleWipe() {
+    // 1. Tear down all Firestore real-time listeners and clear in-memory cache
+    stopListening()
+    // 2. Clear every App Lock key stored on THIS device
+    ;[
+      'clearmind_password_hash',
+      'clearmind_cred_id',
+      'clearmind_nolock',
+      'clearmind_applock_v2',
+    ].forEach((k) => localStorage.removeItem(k))
+    // 3. Sign out of Firebase (best-effort — the reload is the real safety net)
+    try { await signOutUser() } catch (_) { /* ignore */ }
+    // 4. Hard reload: wipes React state, Firestore IndexedDB, and all caches.
+    //    Using replace() so the wipe page is not in the browser history.
+    window.location.replace('/')
+  }
+
+  // ─── App Lock (local device security — device-specific) ───────────────────
   const {
     status, attemptsLeft, biometricAvailable,
     bioSetupState, enrollBiometric, skipBioEnroll,
     setupPassword, login, loginBiometric, lock, noLock, toggleNoLock,
     isLockEnabled, changePassword, disableLock, enableLock,
-  } = useAuth()
+  } = useAuth(handleWipe)
 
   // ─── Firestore data (replaces all localStorage data hooks) ───────────────
   // uid is undefined when not authenticated — hook returns empty defaults safely
   const {
     sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
-    names, addName, editName, removeName, clearAll, reloadFromStorage,
+    names, addName, editName, removeName, clearAll, clearEverything, reloadFromStorage,
+    namesBySheet, tagsBySheet, restoreFullSnapshot,
     tags, setTag, clearTags, mergeTags,
     bag, addToBag, removeFromBag, clearBag, mergeBag,
     groups, createGroup, renameGroup, deleteGroup,
@@ -67,6 +95,26 @@ export default function App() {
 
   // ─── Groups: active group for cell highlight ─────────────────────────────
   const [activeGroupId, setActiveGroupId] = useState(null)
+
+  // Filter groups to only those with ≥1 member in the CURRENT sheet's names.
+  // Groups are global but the panel must only surface groups relevant to
+  // the sheet being viewed. Empty sheet → zero groups shown (no clutter).
+  // A group spanning Sheet 2 and Sheet 3 correctly appears on both.
+  const sheetNameSet = useMemo(() => new Set(names), [names])
+  const sheetGroups  = useMemo(() => {
+    const filtered = {}
+    Object.entries(groups).forEach(([id, g]) => {
+      if (g.members.some(m => sheetNameSet.has(m))) filtered[id] = g
+    })
+    return filtered
+  }, [groups, sheetNameSet])
+
+  // Deselect the active group if it has no members in the newly active sheet
+  // (prevents a stale highlight carrying over when switching sheets).
+  useEffect(() => {
+    if (activeGroupId && !sheetGroups[activeGroupId]) setActiveGroupId(null)
+  }, [activeGroupId, sheetGroups])
+
   const groupHighlightedNames = activeGroupId && groups[activeGroupId]
     ? new Set(groups[activeGroupId].members)
     : new Set()
@@ -249,41 +297,39 @@ export default function App() {
     return () => document.removeEventListener('keydown', handleUndo)
   }, [status, removeName])
 
-  // ─── Copy ─────────────────────────────────────────────────────────────────
+  // ─── Copy — ALL sheets, groups, bag, tags ─────────────────────────────────
+  // Uses buildFullSnapshot (v2) which includes every sheet's names + colors.
+  // Falls back to single-sheet v1 only if there is truly just one sheet and
+  // everything lives in it (legacy compat not needed, but kept for safety).
   const [copied, setCopied] = useState(false)
   const handleCopy = useCallback(async () => {
-    if (!names.length) return
+    // Require at least some data across all sheets
+    const totalNames = sheets.reduce((s, sh) => s + (namesBySheet[sh.id]?.length ?? 0), 0)
+    if (!totalNames && !bag.length && !Object.keys(groups).length) return
     try {
-      const text = buildSnapshot(names, tags, groups, bag)
+      const text = buildFullSnapshot(sheets, namesBySheet, tagsBySheet, groups, bag)
       await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch { /**/ }
-  }, [names, tags, groups, bag])
+  }, [sheets, namesBySheet, tagsBySheet, groups, bag])
 
   // ─── Paste / Load / Snapshot ──────────────────────────────────────────────
   const [restoreMsg, setRestoreMsg] = useState('')
 
+  // Restore a parsed v2 snapshot (all sheets). parseSnapshot() always returns
+  // v2 shape, even for old v1 clipboard content — so this always works.
   const restoreSnapshot = useCallback((parsed) => {
-    let nameCount = 0
-    parsed.names.forEach((n) => { if (addName(n)) nameCount++ })
-    if (parsed.bag?.length)                       mergeBag(parsed.bag)
-    if (Object.keys(parsed.tags   ?? {}).length)  mergeTags(parsed.tags)
-    if (Object.keys(parsed.groups ?? {}).length)  mergeGroups(parsed.groups)
-    return {
-      names:  nameCount,
-      groups: Object.keys(parsed.groups ?? {}).length,
-      bag:    (parsed.bag ?? []).length,
-      colors: Object.keys(parsed.tags   ?? {}).length,
-    }
-  }, [addName, mergeBag, mergeTags, mergeGroups])
+    return restoreFullSnapshot(parsed)
+  }, [restoreFullSnapshot])
 
   function showSnapshotToast(r) {
     const parts = []
-    if (r.names  > 0) parts.push(`${r.names} name${r.names  !== 1 ? 's' : ''}`)
-    if (r.groups > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
-    if (r.bag    > 0) parts.push(`${r.bag} in bag`)
-    if (r.colors > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
+    if (r.sheetsRestored > 0) parts.push(`${r.sheetsRestored} sheet${r.sheetsRestored !== 1 ? 's' : ''}`)
+    if (r.totalNames    > 0) parts.push(`${r.totalNames} name${r.totalNames !== 1 ? 's' : ''}`)
+    if (r.groups        > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
+    if (r.bag           > 0) parts.push(`${r.bag} in bag`)
+    if (r.colors        > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
     if (!parts.length) return
     setRestoreMsg(`✓ Snapshot — ${parts.join(' · ')}`)
     setTimeout(() => setRestoreMsg(''), 3500)
@@ -556,15 +602,17 @@ export default function App() {
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
             onClick={clearAll}
-            disabled={!names.length && !bag.length && !Object.keys(groups).length}
-            aria-label="Clear all"
+            disabled={!names.length}
+            aria-label="Clear current sheet"
+            title="Clear names from this sheet"
           >Clear All</button>
           <button
             id="lock-btn"
             className={`${styles.actionBtn} ${styles.lock}`}
             onClick={lock}
-            aria-label="Lock app"
-            title="Lock"
+            disabled={!isLockEnabled}
+            aria-label={isLockEnabled ? 'Lock app' : 'App Lock not enabled — set a password in Settings'}
+            title={isLockEnabled ? 'Lock' : 'No password set — enable App Lock in Settings first'}
           >🔒</button>
           <button
             id="settings-btn"
@@ -600,7 +648,7 @@ export default function App() {
         <div className={`${styles.rightPanel} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
           {(mobileTab === 'names' || mobileTab === 'groups') && (
             <Groups
-              groups={groups}
+              groups={sheetGroups}
               activeGroupId={activeGroupId}
               onSelectGroup={setActiveGroupId}
               onCreateGroup={createGroup}
@@ -665,7 +713,7 @@ export default function App() {
           isLockEnabled={isLockEnabled}
           onSignOut={signOutUser}
           onDeleteAccount={deleteAccount}
-          onResetData={clearAll}
+          onResetData={clearEverything}
           onEnableLock={enableLock}
           onDisableLock={disableLock}
           onChangePassword={changePassword}

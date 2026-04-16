@@ -50,7 +50,7 @@ function saveNoLockPref(enabled) {
   localStorage.setItem(NOLOCK_KEY, enabled ? '1' : '0')
 }
 
-export function useAuth() {
+export function useAuth(onWipe) {
   // Run migration exactly once on first render (synchronous, before any state reads)
   migrateIfNeeded()
 
@@ -158,16 +158,26 @@ export function useAuth() {
     setAttemptsLeft(next)
 
     if (next <= 0) {
+      // ── Security wipe: 3 wrong attempts ──────────────────────────────────
+      // CRITICAL: do NOT unlock or reset state here. Instead, invoke the
+      // onWipe callback (provided by App.jsx) which:
+      //   1. Stops Firestore listeners
+      //   2. Clears all App Lock localStorage keys
+      //   3. Signs out of Firebase
+      //   4. Forces a full page reload (no cached state survives)
+      // We do clear the local device lock keys synchronously here so that
+      // if onWipe's reload is somehow interrupted the lock won't re-trigger.
       localStorage.removeItem(HASH_KEY)
       clearBiometric()
       setCredSaved(false)
-      setStatus('unlocked')  // App Lock is opt-in — wipe hash and unlock
-      setAttemptsLeft(MAX_ATTEMPTS)
+      // Kick off wipe asynchronously — the page will reload, so no further
+      // state updates from this hook are needed or safe.
+      onWipe?.()
       return { success: false, wiped: true }
     }
 
     return { success: false, attemptsLeft: next }
-  }, [attemptsLeft])
+  }, [attemptsLeft, onWipe])
 
   // ─── Login with biometric ─────────────────────────────────────────────────
   // MUST be called directly from a button click — no async code before this
@@ -181,7 +191,14 @@ export function useAuth() {
   }, [])
 
   // ─── Manual lock ─────────────────────────────────────────────────────────
+  // Guard: only lock if a password hash exists on THIS device.
+  // Without a hash there is nothing to verify against, so locking would create
+  // an inescapable ghost-lock where the user can never enter a correct password.
   const lock = useCallback(() => {
+    if (!getStoredHash()) {
+      console.warn('[ClearMyMind] lock() called but no password hash exists on this device — ignoring')
+      return
+    }
     clearTimeout(lockTimer.current)
     clearTimeout(noLockTimer.current)
     setStatus('locked')

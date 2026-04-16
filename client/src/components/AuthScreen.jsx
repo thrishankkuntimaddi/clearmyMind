@@ -16,6 +16,9 @@ export default function AuthScreen({
   const [confirm, setConfirm]   = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
+  // Separate state for the security wipe flow — once wiping starts the async
+  // handleWipe() is running; the page will reload shortly. We freeze the UI.
+  const [wiping, setWiping]     = useState(false)
   const inputRef = useRef(null)
 
   // Reset form when mode changes
@@ -33,7 +36,7 @@ export default function AuthScreen({
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (loading) return
+    if (loading || wiping) return
     const pwd = password.trim()
     if (!pwd) return
 
@@ -49,9 +52,13 @@ export default function AuthScreen({
       setLoading(false)
       if (!result.success) {
         setPassword('')
-        setError(result.wiped
-          ? '3 failed attempts — all data has been wiped. Start fresh.'
-          : `Incorrect password. ${result.attemptsLeft} attempt${result.attemptsLeft === 1 ? '' : 's'} left.`)
+        if (result.wiped) {
+          // Freeze the UI — handleWipe() is now running asynchronously.
+          // The page will reload in a moment; show a clear wipe message.
+          setWiping(true)
+        } else {
+          setError(`Incorrect password. ${result.attemptsLeft} attempt${result.attemptsLeft === 1 ? '' : 's'} left.`)
+        }
       }
     }
   }
@@ -79,6 +86,26 @@ export default function AuthScreen({
   }
 
   // ── Fingerprint enrol offer (shown after password setup) ──────────────────
+  // ── Security wipe in progress ─────────────────────────────────────────────
+  // handleWipe() is running async (stop listeners → clear storage → sign out →
+  // reload). Freeze the entire UI so the user sees a clear message.
+  if (wiping) {
+    return (
+      <div className={styles.overlay}>
+        <div className={styles.card}>
+          <div className={styles.icon} aria-hidden="true" style={{ filter: 'grayscale(1)' }}>⚠️</div>
+          <h1 className={styles.title} style={{ color: '#f87171' }}>Too many attempts</h1>
+          <p className={styles.subtitle} style={{ color: '#f87171', fontWeight: 600 }}>
+            Wiping all data and signing you out…
+          </p>
+          <p className={styles.subtitle} style={{ marginTop: '8px', color: '#9ca3af', fontSize: '0.85rem' }}>
+            This device's data is being permanently erased. The app will restart momentarily.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   if (bioSetupState === 'offering' || bioSetupState === 'registering') {
     return (
       <div className={styles.overlay}>
