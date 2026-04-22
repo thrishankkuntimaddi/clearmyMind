@@ -20,6 +20,8 @@ function defaultSheets() {
 export function useFirestoreData(uid) {
   // Write-error toast — set when a Firestore write silently fails
   const [writeError, _setWriteError] = useState(null)
+  // Connection-error state — set when all fetches AND subscription fail at boot
+  const [fetchFailed, _setFetchFailed] = useState(false)
   const clearWriteError = useCallback(() => _setWriteError(null), [])
 
   // ── State + shadow refs (refs let callbacks read current values synchronously)
@@ -174,10 +176,11 @@ export function useFirestoreData(uid) {
 
       if (allFetchesFailed && !hasQueuedAnyData) {
         // ALL network + cache reads failed AND subscription has delivered nothing yet.
-        // This happens on a pristine second device when auth token is mid-refresh.
-        // Wait up to 3 seconds for the subscription to deliver real Firestore data.
+        // This happens on a pristine second device when auth token is mid-refresh,
+        // OR when Firestore security rules are misconfigured in production.
+        // Wait up to 5 seconds for the subscription to deliver real Firestore data.
         await new Promise((resolve) => {
-          const deadline = setTimeout(resolve, 3000)
+          const deadline = setTimeout(resolve, 5000)
           function checkQueue() {
             if (Object.keys(pendingUpdates).length > 0 || cancelled) {
               clearTimeout(deadline)
@@ -193,10 +196,32 @@ export function useFirestoreData(uid) {
 
       // Re-evaluate after potential wait
       const finalHasQueued = Object.keys(pendingUpdates).length > 0
-      const isNewUser = !hasFetchedAnyData && !finalHasQueued
+
+      // ── CRITICAL SAFETY GUARD ────────────────────────────────────────────────
+      // Only treat this as a brand-new user if:
+      //  a) ALL fetches succeeded (no errors) — meaning Firestore is reachable, AND
+      //  b) every doc genuinely returned null (doc doesn't exist)
+      //  c) AND the subscription has also delivered nothing
+      //
+      // If ALL fetches errored (permission-denied / network failure), we MUST NOT
+      // seed defaults — we'd be overwriting real data with blank state.
+      // In that case, surface a connection error and abort init. The subscription
+      // will eventually deliver data when auth recovers (or user refreshes).
+      // ─────────────────────────────────────────────────────────────────────────
+      const allFetchesErrored = USER_DOCS.every((k) => fetchErrors[k])
+      if (allFetchesErrored && !finalHasQueued) {
+        console.error('[CMM] ALL Firestore fetches failed and subscription silent — aborting init to prevent data wipe')
+        _setWriteError('⚠️ Connection error — could not load your data. Check your internet and reload.')
+        // Do NOT seed. Leave initCompleteRef.current = false so subscription updates
+        // will be queued and applied if/when the connection recovers.
+        return
+      }
+
+      const isNewUser = !hasFetchedAnyData && !finalHasQueued && !allFetchesErrored
 
       if (isNewUser) {
-        // Truly brand-new user — seed Firestore with default sheet + profile marker.
+        // Truly brand-new user — ALL docs returned null without any fetch error.
+        // Seed Firestore with default sheet + profile marker.
         // Profile doc = reliable "user exists" signal for future logins on new devices.
         console.warn('[CMM] SEEDING NEW USER — this should only happen ONCE per account')
         const defaultSheetList = defaultSheets()
@@ -227,6 +252,8 @@ export function useFirestoreData(uid) {
       }
 
       if (cancelled) return
+      // Clear any prior fetch-failed error now that init succeeded
+      _setFetchFailed(false)
       initCompleteRef.current = true  // ensure always set regardless of branch
     }
 
@@ -718,6 +745,7 @@ export function useFirestoreData(uid) {
   // ─── Public API ───────────────────────────────────────────────────────────
   return {
     writeError, clearWriteError,
+    fetchFailed,
 
     // Sheets
     sheets, activeSheetId,
