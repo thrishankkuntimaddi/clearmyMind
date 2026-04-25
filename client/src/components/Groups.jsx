@@ -175,26 +175,15 @@ export default function Groups({
 
                 <span className={styles.count}>{group.members.length}</span>
 
-                {/* ── Actions: rename + delete ── */}
+                {/* ── Delete only — no rename button, double-click handles rename ── */}
                 <div className={styles.groupActions} onClick={e => e.stopPropagation()}>
-                  {/* Rename button */}
-                  {!isConfirm && (
-                    <button
-                      className={styles.renameBtn}
-                      onClick={e => { e.stopPropagation(); startEdit(id, group.name) }}
-                      title="Rename group"
-                      aria-label={`Rename ${group.name}`}
-                    >✎</button>
-                  )}
-
-                  {/* Delete — 2-step */}
                   {!isConfirm ? (
                     <button
                       className={styles.deleteBtn}
                       onClick={e => requestDelete(e, id)}
                       title="Delete group"
                       aria-label={`Delete ${group.name}`}
-                    >🗑</button>
+                    >×</button>
                   ) : (
                     <>
                       <button
