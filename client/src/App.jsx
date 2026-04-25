@@ -238,6 +238,7 @@ export default function App() {
 
   const [showMemory,       setShowMemory]       = useState(false)
   const [showMemoryPrompt, setShowMemoryPrompt] = useState(false)
+  const [showMemTabs,      setShowMemTabs]      = useState(false)  // toggle memory tabs in SheetBar
   // Which memory sheet tab is open in the grid (null = session mode)
   const [activeMemSheetId, setActiveMemSheetId] = useState(null)
 
@@ -903,16 +904,34 @@ export default function App() {
             aria-label="Settings"
             title="Settings"
           >⚙️</button>
-          {/* 📚 Memory button */}
+
+          {/* 📚 Tab toggle — shows/hides memory sheet tabs in SheetBar */}
+          <button
+            id="memory-tabs-toggle-btn"
+            className={`${styles.actionBtn} ${styles.memoryBtn} ${showMemTabs ? styles.memoryBtnActive : ''} ${activeMemSheetId ? styles.memoryBtnActive : ''}`}
+            onClick={() => {
+              const next = !showMemTabs
+              setShowMemTabs(next)
+              if (!next && activeMemSheetId) setActiveMemSheetId(null)
+            }}
+            aria-label="Toggle memory sheet tabs"
+            aria-pressed={showMemTabs}
+            title={showMemTabs ? 'Hide Memory Tabs' : `Show Memory Tabs (${Object.keys(memSheets).length})`}
+          >
+            📚 Tabs{Object.keys(memSheets).length > 0 && <span style={{ fontSize: '9px', fontWeight: 700, marginLeft: 2, opacity: 0.7 }}>{Object.keys(memSheets).length}</span>}
+          </button>
+
+          {/* 📚 Memory Panel button */}
           <button
             id="memory-btn"
             className={`${styles.actionBtn} ${styles.memoryBtn} ${Object.keys(memSheets).length > 0 ? styles.memoryBtnActive : ''}`}
             onClick={() => setShowMemory(true)}
-            aria-label="Memory Sheets"
-            title={`Memory Sheets${Object.keys(memSheets).length > 0 ? ` — ${Object.keys(memSheets).length} sheet(s)` : ''}`}
+            aria-label="Memory Sheets Panel"
+            title={`Memory Sheets Panel${Object.keys(memSheets).length > 0 ? ` — ${Object.keys(memSheets).length} sheet(s)` : ''}`}
           >📚</button>
         </div>
       </header>
+
 
       {/* ── Content row: Grid + right panel ── */}
       <div className={styles.contentRow}>
@@ -1047,6 +1066,7 @@ export default function App() {
           onMoveName={handleMoveNameToSheet}
           memSheets={memSheets}
           activeMemSheetId={activeMemSheetId}
+          showMemTabs={showMemTabs}
           onSwitchMemSheet={setActiveMemSheetId}
           onRenameMemSheet={renameMemorySheet}
           onDeleteMemSheet={handleDeleteMemTab}

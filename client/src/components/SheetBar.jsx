@@ -5,15 +5,15 @@ import styles from './SheetBar.module.css'
 export default function SheetBar({
   // Session sheet props
   sheets, activeSheetId, onSwitch, onAdd, onRename, onDelete, onMoveName,
-  // Memory tab props (optional — when passed, 📚 toggle button appears)
-  memSheets, activeMemSheetId,
+  // Memory tab props
+  memSheets, activeMemSheetId, showMemTabs,
   onSwitchMemSheet, onRenameMemSheet, onDeleteMemSheet,
 }) {
   const [renamingId,   setRenamingId]   = useState(null)
   const [draft,        setDraft]        = useState('')
   const [dragOverId,   setDragOverId]   = useState(null)
-  // Toggle: show/hide memory sheet tabs in the bar
-  const [showMemTabs,  setShowMemTabs]  = useState(false)
+
+
 
   const inputRef  = useRef(null)
   const scrollRef = useRef(null)
@@ -133,25 +133,8 @@ export default function SheetBar({
           )
         })}
 
-        {/* ── 📚 Memory toggle button ── */}
-        {memSheets && (
-          <button
-            className={`${styles.memToggleBtn} ${showMemTabs ? styles.memToggleBtnOn : ''} ${activeMemSheetId ? styles.memToggleBtnActive : ''}`}
-            onClick={() => {
-              const next = !showMemTabs
-              setShowMemTabs(next)
-              // When hiding, also deselect any active memory tab
-              if (!next && activeMemSheetId) onSwitchMemSheet?.(null)
-            }}
-            title={showMemTabs ? 'Hide Memory Sheets' : `Show Memory Sheets (${memCount})`}
-            aria-label="Toggle Memory Sheets in bar"
-            aria-pressed={showMemTabs}
-          >
-            📚{memCount > 0 && <span className={styles.memToggleCount}>{memCount}</span>}
-          </button>
-        )}
 
-        {/* ── Memory sheet tabs (shown when toggle is ON) ── */}
+        {/* ── Memory sheet tabs (shown when showMemTabs prop is ON) ── */}
         {showMemTabs && memEntries.length > 0 && (
           <>
             <div className={styles.memTabDivider} aria-hidden="true" />
