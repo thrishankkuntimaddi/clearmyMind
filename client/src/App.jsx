@@ -228,7 +228,7 @@ export default function App() {
   // ─── Memory Sheets (persistent layer — isolated from active session) ───────────
   // GUARANTEE: This hook is NEVER called by blast, clearAll, or auto-wipe.
   const {
-    memSheets, trash, trashCount, memoryNameSet,
+    memSheets, trash, trashCount, memoryNameSet, memoryIconMap,
     createMemorySheet, renameMemorySheet, deleteMemSheet, setMemSheetIcon,
     restoreSheet, permanentDelete,
     addNamesToMemSheet, removeNameFromMemSheet, editNameInMemSheet, clearMemSheet,
@@ -947,6 +947,7 @@ export default function App() {
             searchHighlighted={searchHighlighted}
             firstMatchName={firstMatchName}
             memoryNameSet={isMemoryMode ? new Set() : memoryNameSet}
+            memoryIconMap={isMemoryMode ? new Map() : memoryIconMap}
             onRemove={handleGridRemove}
             onEdit={handleGridEdit}
             onTagSet={isMemoryMode ? () => {} : setTag}

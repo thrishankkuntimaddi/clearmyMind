@@ -97,6 +97,19 @@ export function useMemorySheets(uid) {
     return s
   }, [memSheets])
 
+  // ── memoryIconMap — Map<lowercase_name, icon> for per-cell icon display ─────
+  const memoryIconMap = useMemo(() => {
+    const m = new Map()
+    Object.values(memSheets).forEach(sheet => {
+      const icon = sheet.icon ?? '📚'
+      ;(sheet.names ?? []).forEach(n => {
+        const key = n.toLowerCase()
+        if (!m.has(key)) m.set(key, icon)  // first sheet wins
+      })
+    })
+    return m
+  }, [memSheets])
+
   // ── Helper: find which sheet(s) contain a given name ───────────────────────
   const sheetsContainingName = useCallback((name) => {
     const lower = name.toLowerCase()
@@ -265,6 +278,7 @@ export function useMemorySheets(uid) {
     trash,
     trashCount,
     memoryNameSet,    // O(1) lookup
+    memoryIconMap,    // Map<name, icon> for per-cell icon display
     memError,
     clearMemError: () => setMemError(null),
 

@@ -6,7 +6,7 @@ import styles from './NameCell.module.css'
 
 export default function NameCell({
   index, name, tag, dimmed, picked, highlighted, searchMatch, isFirstMatch,
-  inMemory,
+  inMemory, memoryIcon,
   onEdit, onRemove, onTagSet,
   onMobileLongPress,
 }) {
@@ -243,7 +243,7 @@ export default function NameCell({
       >
         <span className={styles.index}>{index}</span>
         <span className={styles.name} title={name}>{name}</span>
-        {inMemory && <span className={styles.memoryDot} title="In Memory" aria-label="In Memory">📚</span>}
+        {inMemory && <span className={styles.memoryDot} title={`Saved in memory (${memoryIcon ?? '📚'})`} aria-label="In Memory">{memoryIcon ?? '📚'}</span>}
 
         {copied && <span className={styles.copiedBadge} aria-hidden="true">✓</span>}
 
