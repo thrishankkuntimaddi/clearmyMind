@@ -522,6 +522,54 @@
   border-left: 1px solid var(--border-default);
   background: rgba(255, 255, 255, 0.01);
   overflow: hidden;
+  position: relative;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.22s ease,
+              border-color 0.28s ease;
+}
+
+.rightPanel.collapsed {
+  width: 0;
+  opacity: 0;
+  border-left-color: transparent;
+  pointer-events: none;
+}
+
+/* ─── The toggle tab — sits on the left edge of the panel wrapper ─── */
+.panelToggleTab {
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  width: 22px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.18s, color 0.18s;
+  user-select: none;
+  pointer-events: all;
+}
+.panelToggleTab:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* wrapper keeps toggle tab visible even when panel is collapsed */
+.rightPanelWrapper {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
 }
 
 /* ─── Header button group divider ─── */

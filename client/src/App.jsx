@@ -359,7 +359,8 @@ export default function App() {
   const [smartShaking, setSmartShaking] = useState(false)
 
   // ─── Mobile tab (names | groups | bag) ───────────────────────────────────
-  const [mobileTab, setMobileTab] = useState('names')
+  const [mobileTab, setMobileTab]       = useState('names')
+  const [rightPanelOpen, setRightPanelOpen] = useState(true)
 
   // ─── Mobile long-press drag state ────────────────────────────────────────
   const [mobileDraggingName, setMobileDraggingName] = useState(null)
@@ -947,30 +948,42 @@ export default function App() {
           />
         </section>
 
-        {/* Right sidebar — always visible */}
-        <div className={`${styles.rightPanel} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
-          {(mobileTab === 'names' || mobileTab === 'groups') && (
-            <Groups
-              groups={sheetGroups}
-              activeGroupId={activeGroupId}
-              onSelectGroup={setActiveGroupId}
-              onCreateGroup={createGroup}
-              onRenameGroup={renameGroup}
-              onDeleteGroup={deleteGroup}
-              onAddToGroup={addToGroup}
-              onRemoveFromGroup={removeFromGroup}
-              draggingName={mobileDraggingName}
-            />
-          )}
-          {(mobileTab === 'names' || mobileTab === 'bag') && (
-            <Bag
-              bag={bag}
-              onDrop={moveToBag}
-              onRestore={restoreFromBag}
-              onRemove={removeFromBag}
-              onClear={clearBag}
-            />
-          )}
+        {/* Right sidebar — collapsible with slide animation */}
+        <div className={styles.rightPanelWrapper}>
+          {/* Toggle tab — always visible on the panel's left edge */}
+          <button
+            className={styles.panelToggleTab}
+            onClick={() => setRightPanelOpen(o => !o)}
+            title={rightPanelOpen ? 'Collapse panel' : 'Expand panel'}
+            aria-label={rightPanelOpen ? 'Collapse Groups & Bag' : 'Expand Groups & Bag'}
+          >
+            {rightPanelOpen ? '›' : '‹'}
+          </button>
+
+          <div className={`${styles.rightPanel} ${rightPanelOpen ? '' : styles.collapsed} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
+            {(mobileTab === 'names' || mobileTab === 'groups') && (
+              <Groups
+                groups={sheetGroups}
+                activeGroupId={activeGroupId}
+                onSelectGroup={setActiveGroupId}
+                onCreateGroup={createGroup}
+                onRenameGroup={renameGroup}
+                onDeleteGroup={deleteGroup}
+                onAddToGroup={addToGroup}
+                onRemoveFromGroup={removeFromGroup}
+                draggingName={mobileDraggingName}
+              />
+            )}
+            {(mobileTab === 'names' || mobileTab === 'bag') && (
+              <Bag
+                bag={bag}
+                onDrop={moveToBag}
+                onRestore={restoreFromBag}
+                onRemove={removeFromBag}
+                onClear={clearBag}
+              />
+            )}
+          </div>
         </div>
       </div>
 
