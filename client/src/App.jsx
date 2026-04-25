@@ -950,34 +950,53 @@ export default function App() {
             memoryIconMap={isMemoryMode ? new Map() : memoryIconMap}
             onRemove={handleGridRemove}
             onEdit={handleGridEdit}
-            onTagSet={isMemoryMode ? () => {} : setTag}
-            onMobileLongPress={isMemoryMode ? () => {} : handleMobileLongPress}
+            onTagSet={isMemoryMode ? null : setTag}
+            onMobileLongPress={isMemoryMode ? null : handleMobileLongPress}
           />
         </section>
 
         {/* Right sidebar */}
         <div className={`${styles.rightPanel} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
-          {(mobileTab === 'names' || mobileTab === 'groups') && (
-            <Groups
-              groups={sheetGroups}
-              activeGroupId={activeGroupId}
-              onSelectGroup={setActiveGroupId}
-              onCreateGroup={createGroup}
-              onRenameGroup={renameGroup}
-              onDeleteGroup={deleteGroup}
-              onAddToGroup={addToGroup}
-              onRemoveFromGroup={removeFromGroup}
-              draggingName={mobileDraggingName}
-            />
-          )}
-          {(mobileTab === 'names' || mobileTab === 'bag') && (
-            <Bag
-              bag={bag}
-              onDrop={moveToBag}
-              onRestore={restoreFromBag}
-              onRemove={removeFromBag}
-              onClear={clearBag}
-            />
+          {isMemoryMode ? (
+            /* ── Memory mode: hide session features, show quiet info ── */
+            <div style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', height: '100%', gap: 8, padding: '16px 12px',
+              color: 'rgba(167, 139, 250, 0.35)', textAlign: 'center',
+            }}>
+              <span style={{ fontSize: 28 }}>{memSheets[activeMemSheetId]?.icon ?? '📚'}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                {memSheets[activeMemSheetId]?.name ?? 'Memory'}
+              </span>
+              <span style={{ fontSize: 10, opacity: 0.6, lineHeight: 1.5 }}>
+                Groups & Bag are session-only features
+              </span>
+            </div>
+          ) : (
+            <>
+              {(mobileTab === 'names' || mobileTab === 'groups') && (
+                <Groups
+                  groups={sheetGroups}
+                  activeGroupId={activeGroupId}
+                  onSelectGroup={setActiveGroupId}
+                  onCreateGroup={createGroup}
+                  onRenameGroup={renameGroup}
+                  onDeleteGroup={deleteGroup}
+                  onAddToGroup={addToGroup}
+                  onRemoveFromGroup={removeFromGroup}
+                  draggingName={mobileDraggingName}
+                />
+              )}
+              {(mobileTab === 'names' || mobileTab === 'bag') && (
+                <Bag
+                  bag={bag}
+                  onDrop={moveToBag}
+                  onRestore={restoreFromBag}
+                  onRemove={removeFromBag}
+                  onClear={clearBag}
+                />
+              )}
+            </>
           )}
         </div>
       </div>
