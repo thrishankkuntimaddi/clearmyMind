@@ -19,7 +19,7 @@ function useIsMobile() {
   return mobile
 }
 
-export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), searchHighlighted = new Set(), firstMatchName = null, onRemove, onEdit, onTagSet, onMobileLongPress }) {
+export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), searchHighlighted = new Set(), firstMatchName = null, memoryNameSet = new Set(), onRemove, onEdit, onTagSet, onMobileLongPress }) {
   const isMobile = useIsMobile()
 
   if (isMobile) {
@@ -50,6 +50,7 @@ export default function NameGrid({ names, tags, randomPicks = new Set(), highlig
                 highlighted={highlightedNames.has(name)}
                 searchMatch={searchHighlighted.has(name)}
                 isFirstMatch={firstMatchName === name}
+                inMemory={memoryNameSet.has(name.toLowerCase())}
                 onRemove={onRemove}
                 onEdit={onEdit}
                 onTagSet={onTagSet}
@@ -95,6 +96,7 @@ export default function NameGrid({ names, tags, randomPicks = new Set(), highlig
                   highlighted={highlightedNames.has(name)}
                   searchMatch={searchHighlighted.has(name)}
                   isFirstMatch={firstMatchName === name}
+                  inMemory={memoryNameSet.has(name.toLowerCase())}
                   onRemove={onRemove}
                   onEdit={onEdit}
                   onTagSet={onTagSet}

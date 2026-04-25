@@ -2,12 +2,20 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { deleteAllUserData } from '../lib/db.js'
 import styles from './SettingsPanel.module.css'
 
+// Shared inline style for the safe-reset checkbox rows
+const checkRowStyle = {
+  display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+  padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+}
+
+
 export default function SettingsPanel({
   user,
   isLockEnabled,
   onSignOut,
   onDeleteAccount,
-  onResetData,
+  onResetData,          // resets active session data only
+  onResetMemory,        // resets memory sheets (called separately, explicitly)
   onEnableLock,
   onDisableLock,
   onChangePassword,
@@ -19,6 +27,10 @@ export default function SettingsPanel({
   const [error, setError]     = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Reset-data checklist (safe reset UX)
+  const [resetSession, setResetSession] = useState(true)
+  const [resetMemory,  setResetMemory]  = useState(false)  // OFF by default — memory is permanent
 
   // Change-password form
   const [oldPwd, setOldPwd]   = useState('')
@@ -52,18 +64,21 @@ export default function SettingsPanel({
     // Auth state change will unmount this panel automatically
   }, [onSignOut])
 
-  // ── Reset all data ────────────────────────────────────────────────────────
+  // ── Reset all data — safe checklist UX ───────────────────────────────────
+  // label: null signals the confirm dialog to render the checklist UI instead
+  // of a plain text warning. Memory Sheets are NEVER pre-selected.
   function askResetData() {
     setConfirmAction({
-      label: 'This will permanently erase ALL your names, groups, bag, and tags across every device. This cannot be undone.',
+      label: null,   // triggers checklist UI in confirm render
       danger: true,
-      btnLabel: 'Yes, reset everything',
+      btnLabel: 'Yes, reset selected data',
       run: async () => {
         setLoading(true)
-        await onResetData()
+        if (resetSession) await onResetData()
+        if (resetMemory && onResetMemory) await onResetMemory()
         setLoading(false)
         goMain()
-        setSuccess('All data has been reset.')
+        setSuccess('Selected data has been reset.')
       },
     })
     setView('confirm')
@@ -122,14 +137,54 @@ export default function SettingsPanel({
             <button className={styles.backBtn} onClick={goMain} aria-label="Back">←</button>
             <h2 className={styles.panelTitle}>Are you sure?</h2>
           </div>
-          <p className={styles.confirmText}>{confirmAction.label}</p>
+
+          {/* Safe reset checklist (shown when label is null) */}
+          {confirmAction.label === null ? (
+            <div style={{ padding: '0 0 12px' }}>
+              <p style={{ fontSize: '12.5px', color: 'rgba(255,255,255,0.45)', marginBottom: '14px' }}>
+                ⚠️ Select what to reset. This cannot be undone.
+              </p>
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={resetSession}
+                  onChange={e => setResetSession(e.target.checked)}
+                  style={{ accentColor: '#a78bfa' }}
+                />
+                <span style={{ fontSize: '13px', color: '#e2e8f0', fontWeight: 600 }}>Active Session</span>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>
+                  — names, tags, groups, bag
+                </span>
+              </label>
+              <label style={checkRowStyle}>
+                <input
+                  type="checkbox"
+                  checked={resetMemory}
+                  onChange={e => setResetMemory(e.target.checked)}
+                  style={{ accentColor: '#f87171' }}
+                />
+                <span style={{ fontSize: '13px', color: resetMemory ? '#f87171' : 'rgba(255,255,255,0.5)', fontWeight: 600 }}>Memory Sheets</span>
+                <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>
+                  — persistent memory (default: OFF)
+                </span>
+              </label>
+              {resetMemory && (
+                <p style={{ fontSize: '11.5px', color: '#f87171', marginTop: 10, padding: '8px 10px', background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)' }}>
+                  ⚠️ Memory Sheets will be permanently deleted and cannot be recovered.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className={styles.confirmText}>{confirmAction.label}</p>
+          )}
+
           {error && <p className={styles.error} role="alert">{error}</p>}
           <div className={styles.confirmBtns}>
             <button className={styles.cancelBtn} onClick={goMain} disabled={loading}>Cancel</button>
             <button
               className={`${styles.dangerBtn} ${loading ? styles.btnLoading : ''}`}
               onClick={confirmAction.run}
-              disabled={loading}
+              disabled={loading || (confirmAction.label === null && !resetSession && !resetMemory)}
             >
               {loading ? '…' : confirmAction.btnLabel}
             </button>

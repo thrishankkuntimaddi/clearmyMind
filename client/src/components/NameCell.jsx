@@ -6,6 +6,7 @@ import styles from './NameCell.module.css'
 
 export default function NameCell({
   index, name, tag, dimmed, picked, highlighted, searchMatch, isFirstMatch,
+  inMemory,
   onEdit, onRemove, onTagSet,
   onMobileLongPress,
 }) {
@@ -202,6 +203,15 @@ export default function NameCell({
 
   const tagColor = tag ? TAG_MAP[tag]?.hex : null
 
+  // Memory highlight: indigo left border (separate visual axis from tag background)
+  const memoryStyle = inMemory && !tagColor
+    ? { borderLeft: '3px solid rgba(139, 92, 246, 0.6)' }
+    : inMemory
+    ? { borderLeft: '3px solid rgba(139, 92, 246, 0.6)', background: `${tagColor}22` }
+    : tagColor
+    ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` }
+    : {}
+
   // ── View mode ──────────────────────────────────────────────────────────────────
   return (
     <>
@@ -214,11 +224,12 @@ export default function NameCell({
           picked      && styles.picked,
           highlighted && styles.highlighted,
           searchMatch && styles.searchMatch,
+          inMemory    && styles.inMemory,
           dragging    && styles.dragging,
           copied      && styles.copiedFlash,
         ].filter(Boolean).join(' ')}
         data-search-first={isFirstMatch && searchMatch ? 'true' : undefined}
-        style={tagColor ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` } : {}}
+        style={memoryStyle}
         role="listitem"
         // draggable ONLY on desktop — on mobile it blocks touch→click synthesis
         draggable={!isMobile}
@@ -232,6 +243,7 @@ export default function NameCell({
       >
         <span className={styles.index}>{index}</span>
         <span className={styles.name} title={name}>{name}</span>
+        {inMemory && <span className={styles.memoryDot} title="In Memory" aria-label="In Memory">📚</span>}
 
         {copied && <span className={styles.copiedBadge} aria-hidden="true">✓</span>}
 

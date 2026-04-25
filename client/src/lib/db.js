@@ -37,6 +37,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore'
 import { db } from './firebase.js'
+import { deleteAllMemoryData } from './memoryDb.js'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 export const USER_DOCS = ['sheets', 'names', 'tags', 'groups', 'bag', 'profile']
@@ -166,11 +167,15 @@ export function stopListening() {
 
 // ─── deleteAllUserData — wipe all docs (account deletion) ───────────────────
 /**
- * Permanently deletes all 6 Firestore documents for a user.
+ * Permanently deletes all 6 Firestore documents for a user AND all Memory
+ * sub-collection documents (sheets + trash).
  * Called from SettingsPanel when the user requests account deletion.
  */
 export async function deleteAllUserData(uid) {
   if (!db) return
-  await Promise.all(USER_DOCS.map((docName) => deleteDoc(docRef(uid, docName))))
+  await Promise.all([
+    ...USER_DOCS.map((docName) => deleteDoc(docRef(uid, docName))),
+    deleteAllMemoryData(uid),   // also wipe memory/ and memoryTrash/ sub-collections
+  ])
   _cache = {}
 }

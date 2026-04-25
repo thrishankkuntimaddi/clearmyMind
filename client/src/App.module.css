@@ -233,6 +233,255 @@
   color: #c084fc !important;
 }
 
+/* 📚 Memory button */
+.memoryBtn {
+  padding: 5px 8px;
+  font-size: 14px;
+  color: rgba(139, 92, 246, 0.7);
+  border-color: rgba(139, 92, 246, 0.15);
+  background: rgba(139, 92, 246, 0.04);
+}
+
+.memoryBtn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.12) !important;
+  border-color: rgba(139, 92, 246, 0.35) !important;
+  color: #a78bfa !important;
+}
+
+.memoryBtnActive {
+  color: #a78bfa;
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.08);
+  box-shadow: 0 0 8px rgba(139, 92, 246, 0.15);
+}
+
+/* ─── 📚 → Memory import button (in actions bar) ─── */
+.importMemBtn {
+  font-weight: 600;
+  font-size: 11.5px;
+  color: rgba(167, 139, 250, 0.8);
+  border-color: rgba(139, 92, 246, 0.25);
+  background: rgba(139, 92, 246, 0.06);
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.importMemBtn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.14) !important;
+  border-color: rgba(139, 92, 246, 0.45) !important;
+  color: #c4b5fd !important;
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.2) !important;
+}
+
+.importMemBtnOpen {
+  background: rgba(139, 92, 246, 0.18) !important;
+  border-color: rgba(139, 92, 246, 0.55) !important;
+  color: #c4b5fd !important;
+}
+
+/* Dropdown panel */
+.importMemPicker {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 280px;
+  max-width: 340px;
+  background: #13131d;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 14px;
+  padding: 12px;
+  z-index: 600;
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(139, 92, 246, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  animation: importPickerIn 0.18s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+@keyframes importPickerIn {
+  from { opacity: 0; transform: translateX(-50%) scale(0.92) translateY(-4px); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1)    translateY(0);    }
+}
+
+.importMemTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: rgba(167, 139, 250, 0.85);
+  margin: 0 0 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.12);
+  letter-spacing: 0.02em;
+}
+
+.importMemEmpty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  margin: 0;
+  text-align: center;
+  padding: 6px 0;
+}
+
+/* Each existing memory sheet row */
+.importMemRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+}
+
+.importMemName {
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.importMemCount {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(139, 92, 246, 0.7);
+  background: rgba(139, 92, 246, 0.1);
+  padding: 1px 6px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+.importMemActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Copy button — indigo */
+.importCopyBtn {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.importCopyBtn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(99, 102, 241, 0.55);
+}
+
+.importCopyBtn:disabled { opacity: 0.4; cursor: wait; }
+
+/* Move button — amber (implies removal) */
+.importMoveBtn {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.importMoveBtn:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.importMoveBtn:disabled { opacity: 0.4; cursor: wait; }
+
+/* New sheet form */
+.importNewForm {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.importNewInput {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12px;
+  color: #e2e8f0;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.importNewInput::placeholder { color: rgba(255, 255, 255, 0.25); }
+.importNewInput:focus { border-color: rgba(139, 92, 246, 0.55); }
+
+/* "+ New Memory Sheet" trigger button */
+.importNewBtn {
+  width: 100%;
+  padding: 8px;
+  background: transparent;
+  border: 1px dashed rgba(139, 92, 246, 0.2);
+  border-radius: 9px;
+  color: rgba(167, 139, 250, 0.5);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  margin-top: 2px;
+}
+
+.importNewBtn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.35);
+  color: #a78bfa;
+}
+
+/* Hint footer */
+.importMemHint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.28);
+  margin: 2px 0 0;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+.importMemHint strong { color: rgba(255, 255, 255, 0.45); }
+
+
+
+/* Smart bar — memory hint badge (📚 when typed name is in memory) */
+.smartMemoryHint {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.75;
+  user-select: none;
+  pointer-events: none;
+  animation: memHintIn 0.2s ease;
+}
+
+@keyframes memHintIn {
+  from { opacity: 0; transform: scale(0.7); }
+  to   { opacity: 0.75; transform: scale(1); }
+}
+
+
 /* ─── Input section — centered ─── */
 .inputSection {
   flex-shrink: 0;

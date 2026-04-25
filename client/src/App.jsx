@@ -3,6 +3,7 @@ import { useAuth } from './hooks/useAuth.js'
 import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useFirebaseAuth } from './hooks/useFirebaseAuth.js'
 import { useFirestoreData } from './hooks/useFirestoreData.js'
+import { useMemorySheets } from './hooks/useMemorySheets.js'
 import { buildFullSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
 import { stopListening } from './lib/db.js'
 import AuthScreen from './components/AuthScreen.jsx'
@@ -17,7 +18,143 @@ import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
 import SheetBar from './components/SheetBar.jsx'
 import MobileDragOverlay from './components/MobileDragOverlay.jsx'
+import MemoryPanel, { MemoryPrompt } from './components/MemoryPanel.jsx'
 import styles from './App.module.css'
+
+// ─── ImportToMemory — dropdown to bulk copy/move session names into a memory sheet
+function ImportToMemory({ sessionNames, memSheets, onCopy, onMove, onCreateAndCopy, onCreateAndMove }) {
+  const [open,     setOpen]     = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [newName,  setNewName]  = useState('')
+  const [busy,     setBusy]     = useState(false)
+  const boxRef = useRef(null)
+  const newRef = useRef(null)
+
+  useEffect(() => { if (creating) newRef.current?.focus() }, [creating])
+
+  // Close on outside click / Escape
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e) {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
+    }
+    function onKey(e) { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown',   onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown',   onKey)
+    }
+  }, [open])
+
+  async function run(fn) {
+    setBusy(true)
+    await fn()
+    setBusy(false)
+    setOpen(false)
+    setCreating(false)
+    setNewName('')
+  }
+
+  async function handleCreate(e, mode) {
+    e.preventDefault()
+    const t = newName.trim()
+    if (!t) return
+    if (mode === 'move') run(() => onCreateAndMove(t))
+    else                 run(() => onCreateAndCopy(t))
+  }
+
+  const sheetList = Object.entries(memSheets)
+  const disabled  = !sessionNames.length
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }} ref={boxRef}>
+      <button
+        id="import-to-memory-btn"
+        className={`${styles.actionBtn} ${styles.importMemBtn} ${open ? styles.importMemBtnOpen : ''}`}
+        onClick={() => !disabled && setOpen(p => !p)}
+        disabled={disabled}
+        title={disabled ? 'No names in this sheet to save' : 'Save names from this sheet into a Memory Sheet'}
+        aria-label="Import to Memory Sheet"
+      >
+        📚 → Memory
+      </button>
+
+      {open && (
+        <div className={styles.importMemPicker}>
+          <p className={styles.importMemTitle}>Save {sessionNames.length} names to Memory</p>
+
+          {sheetList.length === 0 && !creating && (
+            <p className={styles.importMemEmpty}>No memory sheets yet — create one below.</p>
+          )}
+
+          {sheetList.map(([id, sh]) => (
+            <div key={id} className={styles.importMemRow}>
+              <span className={styles.importMemName}>{sh.name}</span>
+              <span className={styles.importMemCount}>{sh.names?.length ?? 0}</span>
+              <div className={styles.importMemActions}>
+                <button
+                  className={styles.importCopyBtn}
+                  onClick={() => run(() => onCopy(id))}
+                  disabled={busy}
+                  title="Copy names to memory (keep in session)"
+                >
+                  Copy
+                </button>
+                <button
+                  className={styles.importMoveBtn}
+                  onClick={() => run(() => onMove(id))}
+                  disabled={busy}
+                  title="Move to memory (removes from session)"
+                >
+                  Move
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {creating ? (
+            <form className={styles.importNewForm}>
+              <input
+                ref={newRef}
+                className={styles.importNewInput}
+                placeholder="New sheet name…"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Escape' && setCreating(false)}
+                disabled={busy}
+              />
+              <button
+                type="submit"
+                className={styles.importCopyBtn}
+                onClick={e => handleCreate(e, 'copy')}
+                disabled={!newName.trim() || busy}
+              >Copy</button>
+              <button
+                type="submit"
+                className={styles.importMoveBtn}
+                onClick={e => handleCreate(e, 'move')}
+                disabled={!newName.trim() || busy}
+              >Move</button>
+            </form>
+          ) : (
+            <button
+              className={styles.importNewBtn}
+              onClick={() => setCreating(true)}
+              disabled={busy}
+            >
+              + New Memory Sheet
+            </button>
+          )}
+
+          <p className={styles.importMemHint}>
+            <strong>Copy</strong> keeps names in session &nbsp;·&nbsp; <strong>Move</strong> removes them
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Pick 3 unique indices from [1..n] ────────────────────────────────────────
 function pickThree(n) {
@@ -82,6 +219,70 @@ export default function App() {
     writeError, clearWriteError,
   } = useFirestoreData(user?.uid)
 
+  // ─── Memory Sheets (persistent layer — isolated from active session) ───────────
+  // GUARANTEE: This hook is NEVER called by blast, clearAll, or auto-wipe.
+  const {
+    memSheets, trash, trashCount, memoryNameSet,
+    createMemorySheet, renameMemorySheet, deleteMemSheet,
+    restoreSheet, permanentDelete,
+    addNamesToMemSheet, removeNameFromMemSheet, editNameInMemSheet, clearMemSheet,
+    restorePreviousVersion,
+    exportAsJSON, exportAsCSV,
+  } = useMemorySheets(user?.uid)
+
+  const [showMemory,       setShowMemory]       = useState(false)
+  const [showMemoryPrompt, setShowMemoryPrompt] = useState(false)
+  // Which memory sheet tab is currently open in the grid (null = session mode)
+  const [activeMemSheetId, setActiveMemSheetId] = useState(null)
+
+  // Called only from Settings → Reset → with Memory Sheets checkbox ON.
+  const resetMemory = useCallback(async () => {
+    const ids = Object.keys(memSheets)
+    await Promise.all(ids.map(id => deleteMemSheet(id)))
+  }, [memSheets, deleteMemSheet])
+
+  // Create a new memory sheet AND immediately populate it with names.
+  // Used by SheetBar's "Create & Save" flow.
+  const createMemSheetAndAdd = useCallback(async (sheetName, namesToAdd) => {
+    const id = await createMemorySheet(sheetName)
+    if (!id || !namesToAdd?.length) return 0
+    return addNamesToMemSheet(id, namesToAdd)
+  }, [createMemorySheet, addNamesToMemSheet])
+
+  // Create a new memory sheet and immediately switch to it in the grid.
+  const handleAddMemSheet = useCallback(async () => {
+    const id = await createMemorySheet('Memory')
+    if (id) setActiveMemSheetId(id)
+  }, [createMemorySheet])
+
+  // Delete a memory tab — soft-delete it then exit memory mode if active.
+  const handleDeleteMemTab = useCallback(async (memId) => {
+    if (activeMemSheetId === memId) setActiveMemSheetId(null)
+    await deleteMemSheet(memId)
+  }, [activeMemSheetId, deleteMemSheet])
+
+  // ─── Computed display values (memory mode overrides session) ──────────────────
+  // When a memory tab is active we show its names in the grid.
+  // All grid write operations are routed to memory functions.
+  const isMemoryMode   = !!activeMemSheetId && !!memSheets[activeMemSheetId]
+  const displayNames   = isMemoryMode ? (memSheets[activeMemSheetId]?.names ?? []) : names
+  const displayTags    = isMemoryMode ? {} : tags   // tags not applicable in memory mode
+
+  const handleGridAdd    = useCallback((name) => {
+    if (isMemoryMode) return addNamesToMemSheet(activeMemSheetId, [name])
+    return addName(name)
+  }, [isMemoryMode, activeMemSheetId, addNamesToMemSheet, addName])
+
+  const handleGridRemove = useCallback((name) => {
+    if (isMemoryMode) return removeNameFromMemSheet(activeMemSheetId, name)
+    return removeName(name)
+  }, [isMemoryMode, activeMemSheetId, removeNameFromMemSheet, removeName])
+
+  const handleGridEdit   = useCallback((oldName, newName) => {
+    if (isMemoryMode) return editNameInMemSheet(activeMemSheetId, oldName, newName)
+    return editName(oldName, newName)
+  }, [isMemoryMode, activeMemSheetId, editNameInMemSheet, editName])
+
   // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
   const moveToBag = useCallback((name) => {
     removeName(name)
@@ -142,8 +343,29 @@ export default function App() {
     }
     if (phase === 'idle') {
       hasBlasted.current = false
+      setShowMemoryPrompt(false)
     }
   }, [phase]) // eslint-disable-line
+
+  // After blast completes → show Memory prompt if user has names to potentially save
+  const handleBlastCompleteWithMemory = useCallback(() => {
+    if (capturedNames.current.length > 0) {
+      setShowMemoryPrompt(true)
+    } else {
+      handleBlastComplete()
+    }
+  }, [handleBlastComplete])
+
+  async function handleMemorySave(sheetId, selectedNames) {
+    await addNamesToMemSheet(sheetId, selectedNames)
+    setShowMemoryPrompt(false)
+    handleBlastComplete()
+  }
+
+  function handleMemoryDiscard() {
+    setShowMemoryPrompt(false)
+    handleBlastComplete()
+  }
 
   // ─── Smart bar ───────────────────────────────────────────────────────────
   const [query, setQuery]           = useState('')
@@ -204,14 +426,14 @@ export default function App() {
   const searchHighlighted = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return new Set()
-    return new Set(names.filter((n) => n.toLowerCase().startsWith(q)))
-  }, [query, names])
+    return new Set(displayNames.filter((n) => n.toLowerCase().startsWith(q)))
+  }, [query, displayNames])
 
   const firstMatchName = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return null
-    return names.find((n) => n.toLowerCase().startsWith(q)) ?? null
-  }, [query, names])
+    return displayNames.find((n) => n.toLowerCase().startsWith(q)) ?? null
+  }, [query, displayNames])
 
   useEffect(() => {
     if (!firstMatchName) return
@@ -244,11 +466,14 @@ export default function App() {
     if (e.key !== 'Enter') return
     const trimmed = query.trim()
     if (!trimmed) return
-    const exactExists = names.some((n) => n.toLowerCase() === trimmed.toLowerCase())
+    const exactExists = displayNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())
     if (!exactExists) {
       e.preventDefault()
-      const ok = addNameTracked(trimmed)
-      if (ok) setQuery('')
+      const ok = isMemoryMode
+        ? addNamesToMemSheet(activeMemSheetId, [trimmed]).then(c => c > 0) && (setQuery(''), true)
+        : addNameTracked(trimmed)
+      if (isMemoryMode) { setQuery('') }
+      else if (ok) setQuery('')
       else {
         setSmartShaking(true)
         setTimeout(() => setSmartShaking(false), 420)
@@ -439,7 +664,19 @@ export default function App() {
   }
 
   if (phase === 'blasting') {
-    return <BlastAnimation names={capturedNames.current} onComplete={handleBlastComplete} />
+    return <BlastAnimation names={capturedNames.current} onComplete={handleBlastCompleteWithMemory} />
+  }
+
+  if (showMemoryPrompt) {
+    return (
+      <MemoryPrompt
+        capturedNames={capturedNames.current}
+        memSheets={memSheets}
+        onSave={handleMemorySave}
+        onDiscard={handleMemoryDiscard}
+        onCreateSheet={createMemorySheet}
+      />
+    )
   }
 
   if (phase === 'congrats') {
@@ -456,7 +693,7 @@ export default function App() {
   const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
   // Smart bar modes
-  const exactExists  = query.trim() ? names.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
+  const exactExists  = query.trim() ? displayNames.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
   const isAddMode    = !!query.trim() && !exactExists
   const isSearchMode = !!query.trim() && searchHighlighted.size > 0
 
@@ -468,15 +705,25 @@ export default function App() {
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
           <span className={styles.title}>ClearMyMind</span>
-          {names.length > 0 && (
+          {/* Count badge: shows memory sheet count when in memory mode */}
+          {displayNames.length > 0 && (
             <span
               className={`${styles.count} ${
-                names.length >= 90 ? styles.countCritical :
-                names.length >= 80 ? styles.countWarn : ''}`}
+                !isMemoryMode && displayNames.length >= 90 ? styles.countCritical :
+                !isMemoryMode && displayNames.length >= 80 ? styles.countWarn : ''}`}
               aria-live="polite"
+              style={isMemoryMode ? { color: '#a78bfa', background: 'rgba(139,92,246,0.1)', borderColor: 'rgba(139,92,246,0.25)' } : {}}
             >
-              {names.length}
+              {displayNames.length}
             </span>
+          )}
+          {/* 🔒 Memory mode badge */}
+          {isMemoryMode && (
+            <span style={{
+              fontSize: '10px', fontWeight: 700, color: '#a78bfa',
+              background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
+              borderRadius: '99px', padding: '2px 8px', letterSpacing: '0.03em',
+            }}>📚 Memory</span>
           )}
         </div>
 
@@ -510,6 +757,10 @@ export default function App() {
               <span className={styles.smartMatchBadge}>
                 {searchHighlighted.size} match{searchHighlighted.size !== 1 ? 'es' : ''}
               </span>
+            )}
+            {/* Memory hint: shown when typed name already exists in a Memory Sheet */}
+            {isAddMode && memoryNameSet.has(query.trim().toLowerCase()) && (
+              <span className={styles.smartMemoryHint} title="Already in Memory">📚</span>
             )}
             {isAddMode && <span className={styles.smartAddHint}>↵ add</span>}
             {query && (
@@ -598,14 +849,37 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
+          {/* 📚 → Memory — bulk import current sheet into a memory sheet */}
+          {!isMemoryMode && (
+            <ImportToMemory
+              sessionNames={names}
+              memSheets={memSheets}
+              onCopy={async (sheetId) => {
+                await addNamesToMemSheet(sheetId, names)
+              }}
+              onMove={async (sheetId) => {
+                await addNamesToMemSheet(sheetId, names)
+                clearAll()
+              }}
+              onCreateAndCopy={async (sheetName) => {
+                const id = await createMemorySheet(sheetName)
+                if (id) { await addNamesToMemSheet(id, names); setActiveMemSheetId(id) }
+              }}
+              onCreateAndMove={async (sheetName) => {
+                const id = await createMemorySheet(sheetName)
+                if (id) { await addNamesToMemSheet(id, names); clearAll(); setActiveMemSheetId(id) }
+              }}
+            />
+          )}
+
           <button
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
-            onClick={clearAll}
-            disabled={!names.length}
-            aria-label="Clear current sheet"
-            title="Clear names from this sheet"
-          >Clear All</button>
+            onClick={isMemoryMode ? () => clearMemSheet(activeMemSheetId) : clearAll}
+            disabled={!displayNames.length}
+            aria-label={isMemoryMode ? 'Clear memory sheet' : 'Clear current sheet'}
+            title={isMemoryMode ? 'Remove all names from this memory sheet' : 'Clear names from this sheet'}
+          >{isMemoryMode ? 'Clear Memory' : 'Clear All'}</button>
           <button
             id="lock-btn"
             className={`${styles.actionBtn} ${styles.lock}`}
@@ -621,6 +895,14 @@ export default function App() {
             aria-label="Settings"
             title="Settings"
           >⚙️</button>
+          {/* 📚 Memory button */}
+          <button
+            id="memory-btn"
+            className={`${styles.actionBtn} ${styles.memoryBtn} ${Object.keys(memSheets).length > 0 ? styles.memoryBtnActive : ''}`}
+            onClick={() => setShowMemory(true)}
+            aria-label="Memory Sheets"
+            title={`Memory Sheets${Object.keys(memSheets).length > 0 ? ` — ${Object.keys(memSheets).length} sheet(s)` : ''}`}
+          >📚</button>
         </div>
       </header>
 
@@ -631,16 +913,17 @@ export default function App() {
           aria-label="Name list"
         >
           <NameGrid
-            names={names}
-            tags={tags}
-            randomPicks={randomPicks}
-            highlightedNames={groupHighlightedNames}
+            names={displayNames}
+            tags={displayTags}
+            randomPicks={isMemoryMode ? new Set() : randomPicks}
+            highlightedNames={isMemoryMode ? new Set() : groupHighlightedNames}
             searchHighlighted={searchHighlighted}
             firstMatchName={firstMatchName}
-            onRemove={removeName}
-            onEdit={editName}
-            onTagSet={setTag}
-            onMobileLongPress={handleMobileLongPress}
+            memoryNameSet={isMemoryMode ? new Set() : memoryNameSet}
+            onRemove={handleGridRemove}
+            onEdit={handleGridEdit}
+            onTagSet={isMemoryMode ? () => {} : setTag}
+            onMobileLongPress={isMemoryMode ? () => {} : handleMobileLongPress}
           />
         </section>
 
@@ -714,10 +997,32 @@ export default function App() {
           onSignOut={signOutUser}
           onDeleteAccount={deleteAccount}
           onResetData={clearEverything}
+          onResetMemory={resetMemory}
           onEnableLock={enableLock}
           onDisableLock={disableLock}
           onChangePassword={changePassword}
           onClose={() => setShowSettings(false)}
+        />
+      )}
+
+      {/* ── Memory Panel ── */}
+      {showMemory && (
+        <MemoryPanel
+          memSheets={memSheets}
+          trash={trash}
+          trashCount={trashCount}
+          onCreateSheet={createMemorySheet}
+          onRenameSheet={renameMemorySheet}
+          onDeleteSheet={deleteMemSheet}
+          onClearSheet={clearMemSheet}
+          onAddNames={addNamesToMemSheet}
+          onRemoveName={removeNameFromMemSheet}
+          onRestoreVersion={restorePreviousVersion}
+          onRestoreTrash={restoreSheet}
+          onPermanentDelete={permanentDelete}
+          onExportJSON={exportAsJSON}
+          onExportCSV={exportAsCSV}
+          onClose={() => setShowMemory(false)}
         />
       )}
 
@@ -731,6 +1036,15 @@ export default function App() {
           onRename={renameSheet}
           onDelete={deleteSheet}
           onMoveName={handleMoveNameToSheet}
+          memSheets={memSheets}
+          activeMemSheetId={activeMemSheetId}
+          onSwitchMemSheet={setActiveMemSheetId}
+          onRenameMemSheet={renameMemorySheet}
+          onDeleteMemSheet={handleDeleteMemTab}
+          onAddMemSheet={handleAddMemSheet}
+          activeSheetNames={names}
+          onAddNamesToMemSheet={addNamesToMemSheet}
+          onCreateMemSheetAndAdd={createMemSheetAndAdd}
         />
       </div>
 
