@@ -93,11 +93,18 @@ export default function Groups({
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') handleCreate()
+              if (e.key === 'Enter')  { e.preventDefault(); handleCreate() }
               if (e.key === 'Escape') { setCreating(false); setNewName('') }
             }}
-            onBlur={handleCreate}
+            onBlur={() => { if (!newName.trim()) { setCreating(false); setNewName('') } }}
           />
+          <button
+            className={styles.newGroupConfirm}
+            onMouseDown={e => { e.preventDefault(); handleCreate() }}
+            disabled={!newName.trim()}
+            title="Create group"
+            aria-label="Confirm create group"
+          >✓</button>
         </div>
       )}
 
