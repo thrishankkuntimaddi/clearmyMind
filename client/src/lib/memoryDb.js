@@ -57,23 +57,26 @@ const TRASH_TTL_DAYS = 30
 
 // ─── upsertMemorySheet — create or rename a memory sheet ─────────────────────
 /**
- * Creates a new sheet or updates its name only (does not overwrite names).
+ * Creates a new sheet or updates its name/icon (does not overwrite names).
  * Use patchMemoryNames to update the names array.
  */
-export async function upsertMemorySheet(uid, sheetId, name) {
+export async function upsertMemorySheet(uid, sheetId, name, icon) {
   if (!uid || !db) return false
   try {
-    await setDoc(memDocRef(uid, sheetId), {
+    const payload = {
       name,
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),   // merge:true — only writes if field absent
-    }, { merge: true })
+    }
+    if (icon) payload.icon = icon
+    await setDoc(memDocRef(uid, sheetId), payload, { merge: true })
     return true
   } catch (e) {
     console.error('[CMM] upsertMemorySheet failed:', e.code, e.message)
     return false
   }
 }
+
 
 // ─── patchMemoryNames — update names array, rotate version history ─────────
 /**

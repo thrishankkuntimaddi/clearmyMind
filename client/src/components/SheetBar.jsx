@@ -296,7 +296,7 @@ export default function SheetBar({
                     />
                   ) : (
                     <>
-                      <span className={styles.memTabIcon}>📚</span>
+                      <span className={styles.memTabIcon}>{memSheet.icon ?? '📚'}</span>
                       <span className={styles.tabName}>{memSheet.name}</span>
                     </>
                   )}

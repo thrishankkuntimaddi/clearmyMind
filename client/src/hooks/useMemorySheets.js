@@ -25,6 +25,31 @@ import {
 } from '../lib/memoryDb.js'
 import { toTitleCase } from './useFirestoreData.js'
 
+// ─── Curated icon set for memory sheets ────────────────────────────────────────────────
+// Each icon is visually distinct so users can tell sheets apart at a glance.
+export const MEM_SHEET_ICONS = [
+  '📘', // blue book
+  '📗', // green book
+  '📙', // orange book
+  '📕', // closed red book
+  '📛', // notebook
+  '📜', // scroll
+  '🗒️', // spiral notepad
+  '📂', // open file folder
+  '🏷️', // label
+  '⭐', // star
+  '📎', // paperclip
+  '🔖', // bookmark
+  '🧩', // puzzle
+  '💡', // bulb
+  '🎯', // bullseye
+]
+
+export function pickNextIcon(existingSheets) {
+  const usedIcons = new Set(Object.values(existingSheets).map(s => s.icon).filter(Boolean))
+  return MEM_SHEET_ICONS.find(i => !usedIcons.has(i)) ?? MEM_SHEET_ICONS[Object.keys(existingSheets).length % MEM_SHEET_ICONS.length]
+}
+
 export function useMemorySheets(uid) {
   const [memSheets, _setMemSheets] = useState({})
   const [trash,     _setTrash]     = useState({})
@@ -81,12 +106,13 @@ export function useMemorySheets(uid) {
   }, [])
 
   // ── createMemorySheet ───────────────────────────────────────────────────────
-  const createMemorySheet = useCallback(async (name) => {
+  const createMemorySheet = useCallback(async (name, iconOverride) => {
     if (!uid) return null
-    const id = `mem-${Date.now()}`
+    const id   = `mem-${Date.now()}`
+    const icon = iconOverride ?? pickNextIcon(memSheetsRef.current)
     // Optimistic update
-    setMemSheets({ ...memSheetsRef.current, [id]: { name, names: [] } })
-    const ok = await upsertMemorySheet(uid, id, name)
+    setMemSheets({ ...memSheetsRef.current, [id]: { name, icon, names: [] } })
+    const ok = await upsertMemorySheet(uid, id, name, icon)
     if (!ok) {
       setMemError('Failed to create sheet. Check your connection.')
       const next = { ...memSheetsRef.current }
@@ -102,8 +128,18 @@ export function useMemorySheets(uid) {
     if (!uid || !memSheetsRef.current[sheetId]) return
     const prev = memSheetsRef.current[sheetId]
     setMemSheets({ ...memSheetsRef.current, [sheetId]: { ...prev, name } })
-    await upsertMemorySheet(uid, sheetId, name)
+    await upsertMemorySheet(uid, sheetId, name, prev.icon)  // preserve icon
   }, [uid])
+
+  // ── setMemSheetIcon — change a sheet's icon ────────────────────────────────
+  const setMemSheetIcon = useCallback(async (sheetId, icon) => {
+    if (!uid || !memSheetsRef.current[sheetId]) return
+    const prev = memSheetsRef.current[sheetId]
+    setMemSheets({ ...memSheetsRef.current, [sheetId]: { ...prev, icon } })
+    await upsertMemorySheet(uid, sheetId, prev.name, icon)
+  }, [uid])
+
+
 
   // ── deleteMemSheet — SOFT DELETE only ───────────────────────────────────────
   const deleteMemSheet = useCallback(async (sheetId) => {
@@ -238,6 +274,7 @@ export function useMemorySheets(uid) {
     // Sheet lifecycle
     createMemorySheet,
     renameMemorySheet,
+    setMemSheetIcon,
     deleteMemSheet,       // soft — goes to trash
     restoreSheet,
     permanentDelete,

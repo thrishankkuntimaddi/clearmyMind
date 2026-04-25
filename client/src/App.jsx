@@ -22,7 +22,7 @@ import MemoryPanel, { MemoryPrompt } from './components/MemoryPanel.jsx'
 import styles from './App.module.css'
 
 // ─── ImportToMemory — dropdown to bulk copy/move session names into a memory sheet
-function ImportToMemory({ sessionNames, memSheets, onCopy, onMove, onCreateAndCopy, onCreateAndMove }) {
+function ImportToMemory({ sessionNames, bagNames = [], memSheets, onCopy, onMove, onCreateAndCopy, onCreateAndMove }) {
   const [open,     setOpen]     = useState(false)
   const [creating, setCreating] = useState(false)
   const [newName,  setNewName]  = useState('')
@@ -65,7 +65,9 @@ function ImportToMemory({ sessionNames, memSheets, onCopy, onMove, onCreateAndCo
   }
 
   const sheetList = Object.entries(memSheets)
-  const disabled  = !sessionNames.length
+  const disabled   = !sessionNames.length && !bagNames.length
+  const totalCount = sessionNames.length + bagNames.length
+  const bagOnly    = bagNames.length > 0
 
   return (
     <div style={{ position: 'relative', flexShrink: 0 }} ref={boxRef}>
@@ -74,15 +76,19 @@ function ImportToMemory({ sessionNames, memSheets, onCopy, onMove, onCreateAndCo
         className={`${styles.actionBtn} ${styles.importMemBtn} ${open ? styles.importMemBtnOpen : ''}`}
         onClick={() => !disabled && setOpen(p => !p)}
         disabled={disabled}
-        title={disabled ? 'No names in this sheet to save' : 'Save names from this sheet into a Memory Sheet'}
+        title={disabled ? 'No names to save' : `Save ${totalCount} name${totalCount !== 1 ? 's' : ''} (${sessionNames.length} active${bagOnly ? ` + ${bagNames.length} in bag` : ''}) to a Memory Sheet`}
         aria-label="Import to Memory Sheet"
       >
-        📚 → Memory
+        📚 → Memory {totalCount > 0 ? `(${totalCount})` : ''}
       </button>
 
       {open && (
         <div className={styles.importMemPicker}>
-          <p className={styles.importMemTitle}>Save {sessionNames.length} names to Memory</p>
+          <p className={styles.importMemTitle}>
+            Save {sessionNames.length} name{sessionNames.length !== 1 ? 's' : ''}
+            {bagOnly ? <span style={{ color: 'rgba(251,191,36,0.75)', marginLeft: 4 }}>+ {bagNames.length} bag</span> : ''}
+            {' '}to Memory
+          </p>
 
           {sheetList.length === 0 && !creating && (
             <p className={styles.importMemEmpty}>No memory sheets yet — create one below.</p>
@@ -148,7 +154,7 @@ function ImportToMemory({ sessionNames, memSheets, onCopy, onMove, onCreateAndCo
           )}
 
           <p className={styles.importMemHint}>
-            <strong>Copy</strong> keeps names in session &nbsp;·&nbsp; <strong>Move</strong> removes them
+            <strong>Copy</strong> keeps session intact &nbsp;·&nbsp; <strong>Move</strong> removes names, bag &amp; empty groups
           </p>
         </div>
       )}
@@ -853,21 +859,46 @@ export default function App() {
           {!isMemoryMode && (
             <ImportToMemory
               sessionNames={names}
+              bagNames={bag}
               memSheets={memSheets}
               onCopy={async (sheetId) => {
-                await addNamesToMemSheet(sheetId, names)
+                // Copy = names + bag → memory, session untouched
+                await addNamesToMemSheet(sheetId, [...names, ...bag])
               }}
               onMove={async (sheetId) => {
-                await addNamesToMemSheet(sheetId, names)
+                // Move = names + bag → memory, then wipe session
+                await addNamesToMemSheet(sheetId, [...names, ...bag])
+                // Clear all session names
                 clearAll()
+                // Clear the bag (those people are now in memory)
+                clearBag()
+                // Delete any groups whose members are NOW all gone
+                Object.entries(groups).forEach(([gid, g]) => {
+                  const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
+                  const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
+                  if (!anyRemaining) deleteGroup(gid)
+                })
               }}
               onCreateAndCopy={async (sheetName) => {
                 const id = await createMemorySheet(sheetName)
-                if (id) { await addNamesToMemSheet(id, names); setActiveMemSheetId(id) }
+                if (id) {
+                  await addNamesToMemSheet(id, [...names, ...bag])
+                  setActiveMemSheetId(id)
+                }
               }}
               onCreateAndMove={async (sheetName) => {
                 const id = await createMemorySheet(sheetName)
-                if (id) { await addNamesToMemSheet(id, names); clearAll(); setActiveMemSheetId(id) }
+                if (id) {
+                  await addNamesToMemSheet(id, [...names, ...bag])
+                  clearAll()
+                  clearBag()
+                  Object.entries(groups).forEach(([gid, g]) => {
+                    const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
+                    const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
+                    if (!anyRemaining) deleteGroup(gid)
+                  })
+                  setActiveMemSheetId(id)
+                }
               }}
             />
           )}
