@@ -73,6 +73,25 @@ export async function patchUserData(uid, docName, partial) {
   }
 }
 
+// ─── replaceUserDoc — full replace (NO merge) ─────────────────────────────────
+/**
+ * Replace an entire Firestore doc without merge.
+ * REQUIRED for documents like 'groups' and 'bag' where keys can be deleted
+ * (merge:true would silently resurrect deleted group keys).
+ */
+export async function replaceUserDoc(uid, docName, data) {
+  if (!uid || !db) return false
+  const payload = { ...data, updatedAt: serverTimestamp() }
+  _cache[docName] = payload
+  try {
+    await setDoc(docRef(uid, docName), payload)  // no { merge } = full replace
+    return true
+  } catch (e) {
+    console.error(`[ClearMyMind] replaceUserDoc(${docName}) failed:`, e.code, e.message)
+    return false
+  }
+}
+
 // ─── fetchAllUserDataWithErrors — like fetchAllUserData but also returns error map ─
 /**
  * Same as fetchAllUserData but also returns a `fetchErrors` map

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { patchUserData, subscribeToUserData, fetchAllUserDataWithErrors, USER_DOCS } from '../lib/db.js'
+import { patchUserData, replaceUserDoc, subscribeToUserData, fetchAllUserDataWithErrors, USER_DOCS } from '../lib/db.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function toTitleCase(str) {
@@ -51,15 +51,24 @@ export function useFirestoreData(uid) {
   const setGroups         = (v) => { groupsRef.current        = v; _setGroups(v) }
   const setBag            = (v) => { bagRef.current           = v; _setBag(v) }
 
-  // ── patchRef: always points to uid-scoped patch so callbacks don't close over uid
+  // ── patchRef: merge-write for partial updates (names, tags, bag, etc.)
   const patchRef = useRef(null)
+  // ── replaceRef: full-replace write (groups) — merge:true would resurrect deleted keys
+  const replaceRef = useRef(null)
   useEffect(() => {
-    patchRef.current = uid
-      ? async (docName, partial) => {
-          const ok = await patchUserData(uid, docName, partial)
-          if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
-        }
-      : () => {}
+    if (uid) {
+      patchRef.current = async (docName, partial) => {
+        const ok = await patchUserData(uid, docName, partial)
+        if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
+      }
+      replaceRef.current = async (docName, data) => {
+        const ok = await replaceUserDoc(uid, docName, data)
+        if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
+      }
+    } else {
+      patchRef.current   = () => {}
+      replaceRef.current = () => {}
+    }
   }, [uid])
 
   // ─── Hydrate state from fetched Firestore data ────────────────────────────
@@ -312,7 +321,7 @@ export function useFirestoreData(uid) {
       nextGroups[id] = { ...g, members: g.members.map((n) => (n === oldName ? newName : n)) }
     })
     setGroups(nextGroups)
-    patchRef.current('groups', { groups: nextGroups })
+    replaceRef.current('groups', { groups: nextGroups })
   }, [])
 
   const removeName = useCallback((name) => {
@@ -339,7 +348,7 @@ export function useFirestoreData(uid) {
       nextGroups[id] = { ...g, members: g.members.filter((n) => n !== name) }
     })
     setGroups(nextGroups)
-    patchRef.current('groups', { groups: nextGroups })
+    replaceRef.current('groups', { groups: nextGroups })
   }, [])
 
   // Clears only the ACTIVE sheet's names (same behaviour as old useNames.clearAll)
@@ -441,7 +450,7 @@ export function useFirestoreData(uid) {
     const id   = `g-${Date.now()}`
     const next = { ...groupsRef.current, [id]: { name, members: [] } }
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
     return id
   }, [])
 
@@ -449,19 +458,19 @@ export function useFirestoreData(uid) {
     if (!groupsRef.current[id]) return
     const next = { ...groupsRef.current, [id]: { ...groupsRef.current[id], name } }
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
   }, [])
 
   const deleteGroup = useCallback((id) => {
     const next = { ...groupsRef.current }
     delete next[id]
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
   }, [])
 
   const clearGroups = useCallback(() => {
     setGroups({})
-    patchRef.current('groups', { groups: {} })
+    replaceRef.current('groups', { groups: {} })
   }, [])
 
   const addToGroup = useCallback((groupId, name) => {
@@ -469,7 +478,7 @@ export function useFirestoreData(uid) {
     if (!g || g.members.includes(name)) return
     const next = { ...groupsRef.current, [groupId]: { ...g, members: [...g.members, name] } }
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
   }, [])
 
   const removeFromGroup = useCallback((groupId, name) => {
@@ -477,7 +486,7 @@ export function useFirestoreData(uid) {
     if (!g) return
     const next = { ...groupsRef.current, [groupId]: { ...g, members: g.members.filter((n) => n !== name) } }
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
   }, [])
 
   const mergeGroups = useCallback((incoming) => {
@@ -495,7 +504,7 @@ export function useFirestoreData(uid) {
       }
     })
     setGroups(next)
-    patchRef.current('groups', { groups: next })
+    replaceRef.current('groups', { groups: next })
   }, [])
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -580,7 +589,7 @@ export function useFirestoreData(uid) {
       nextGroups[id] = { ...g, members: g.members.filter((n) => n !== name) }
     })
     setGroups(nextGroups)
-    patchRef.current('groups', { groups: nextGroups })
+    replaceRef.current('groups', { groups: nextGroups })
 
     return { ok: true }
   }, [])
@@ -725,7 +734,7 @@ export function useFirestoreData(uid) {
       }
     })
     setGroups(nextGroups)
-    patchRef.current('groups', { groups: nextGroups })
+    replaceRef.current('groups', { groups: nextGroups })
 
     // ── 5. Merge bag ──────────────────────────────────────────────────────────────────
     const nextBag = [...bagRef.current]
