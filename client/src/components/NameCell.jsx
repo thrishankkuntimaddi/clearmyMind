@@ -118,7 +118,6 @@ export default function NameCell({
   // ── Open tag picker at the exact click/tap position ───────────────
   // Using clientX/Y from the event is immune to parent transforms & scroll issues.
   function openPickerAt(clientX, clientY) {
-    if (!onTagSet) return  // no tag support in this mode (e.g. memory mode)
     const popH = 52
     const popW = 220
     let top  = clientY - popH - 10
