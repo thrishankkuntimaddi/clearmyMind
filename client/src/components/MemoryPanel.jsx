@@ -13,21 +13,108 @@ function daysSince(deletedAt) {
   return diff === 0 ? 'today' : `${diff}d ago`
 }
 
+// ─── NameRow — one name in the sheet table with safe 2-step delete ───────────
+function NameRow({ sheetId, name, onRemove, onEdit }) {
+  const [confirming, setConfirming] = useState(false)
+  const [editing,    setEditing]    = useState(false)
+  const [draft,      setDraft]      = useState(name)
+  const editRef = useRef(null)
+
+  useEffect(() => { if (editing) editRef.current?.focus() }, [editing])
+
+  // Reset confirm state after 3s of inactivity
+  useEffect(() => {
+    if (!confirming) return
+    const t = setTimeout(() => setConfirming(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirming])
+
+  function commitEdit() {
+    const t = draft.trim()
+    if (t && t !== name) onEdit(sheetId, name, t)
+    setEditing(false)
+  }
+
+  return (
+    <div className={styles.nameRow}>
+      {editing ? (
+        <input
+          ref={editRef}
+          className={styles.nameRowEditInput}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={e => {
+            if (e.key === 'Enter')  { e.preventDefault(); commitEdit() }
+            if (e.key === 'Escape') { setDraft(name); setEditing(false) }
+          }}
+        />
+      ) : (
+        <span
+          className={styles.nameRowLabel}
+          onDoubleClick={() => { setDraft(name); setEditing(true) }}
+          title="Double-click to rename"
+        >
+          {name}
+        </span>
+      )}
+      <div className={styles.nameRowActions}>
+        {!editing && (
+          <button
+            className={styles.nameRowEdit}
+            onClick={() => { setDraft(name); setEditing(true) }}
+            title="Rename"
+            aria-label={`Rename ${name}`}
+          >✎</button>
+        )}
+        {confirming ? (
+          <>
+            <span className={styles.nameRowConfirmText}>Remove?</span>
+            <button
+              className={styles.nameRowConfirmYes}
+              onClick={() => onRemove(sheetId, name)}
+              title="Yes, remove"
+            >Yes</button>
+            <button
+              className={styles.nameRowConfirmNo}
+              onClick={() => setConfirming(false)}
+              title="Cancel"
+            >No</button>
+          </>
+        ) : (
+          <button
+            className={styles.nameRowDelete}
+            onClick={() => setConfirming(true)}
+            title="Remove name (will ask to confirm)"
+            aria-label={`Remove ${name}`}
+          >🗑</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── SheetCard — one expandable sheet in the panel ───────────────────────────
 function SheetCard({
   sheetId, sheet, onRename, onDelete, onClearAll,
-  onAddName, onRemoveName, onRestoreVersion, hasVersion,
+  onAddName, onRemoveName, onEditName, onRestoreVersion, hasVersion,
 }) {
   const [expanded,  setExpanded]  = useState(true)
   const [renaming,  setRenaming]  = useState(false)
   const [draft,     setDraft]     = useState('')
   const [addDraft,  setAddDraft]  = useState('')
   const [adding,    setAdding]    = useState(false)
+  const [clearing,  setClearing]  = useState(false)
   const renameRef = useRef(null)
   const addRef    = useRef(null)
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
   useEffect(() => { if (adding)   addRef.current?.focus()    }, [adding])
+  useEffect(() => {
+    if (!clearing) return
+    const t = setTimeout(() => setClearing(false), 4000)
+    return () => clearTimeout(t)
+  }, [clearing])
 
   function commitRename() {
     const t = draft.trim()
@@ -49,6 +136,7 @@ function SheetCard({
       {/* Sheet header */}
       <div className={styles.sheetHeader} onClick={() => !renaming && setExpanded(x => !x)}>
         <span className={styles.sheetChevron}>{expanded ? '▾' : '▸'}</span>
+        <span className={styles.sheetIcon}>{sheet.icon ?? '📚'}</span>
 
         {renaming ? (
           <input
@@ -84,14 +172,24 @@ function SheetCard({
             title="Rename sheet"
             aria-label="Rename sheet"
           >✎</button>
-          {!isEmpty && (
+
+          {/* 2-step Clear All */}
+          {!isEmpty && !clearing && (
             <button
               className={`${styles.iconBtn} ${styles.iconBtnWarn}`}
-              onClick={() => onClearAll(sheetId)}
-              title="Clear all names"
+              onClick={() => setClearing(true)}
+              title="Clear all names (asks for confirmation)"
               aria-label="Clear all names"
             >⊘</button>
           )}
+          {clearing && (
+            <>
+              <span className={styles.clearConfirmText}>Clear all?</span>
+              <button className={styles.clearConfirmYes} onClick={() => { onClearAll(sheetId); setClearing(false) }}>Yes</button>
+              <button className={styles.clearConfirmNo}  onClick={() => setClearing(false)}>No</button>
+            </>
+          )}
+
           <button
             className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
             onClick={() => onDelete(sheetId)}
@@ -105,20 +203,27 @@ function SheetCard({
       {expanded && (
         <div className={styles.sheetBody}>
           {isEmpty && (
-            <p className={styles.emptyHint}>No names yet. Add below.</p>
+            <p className={styles.emptyHint}>No names yet. Add one below.</p>
           )}
-          <div className={styles.nameChips}>
-            {names.map(name => (
-              <span key={name} className={styles.chip}>
-                {name}
-                <button
-                  className={styles.chipRemove}
-                  onClick={() => onRemoveName(sheetId, name)}
-                  aria-label={`Remove ${name}`}
-                >×</button>
-              </span>
-            ))}
-          </div>
+
+          {/* Safe name table */}
+          {!isEmpty && (
+            <div className={styles.nameTable}>
+              <div className={styles.nameTableHeader}>
+                <span>Name</span>
+                <span>Actions</span>
+              </div>
+              {names.map(name => (
+                <NameRow
+                  key={name}
+                  sheetId={sheetId}
+                  name={name}
+                  onRemove={onRemoveName}
+                  onEdit={onEditName}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Inline add */}
           <form className={styles.addRow} onSubmit={commitAdd}>
@@ -294,7 +399,7 @@ export function MemoryPrompt({ capturedNames, memSheets, onSave, onDiscard, onCr
 export default function MemoryPanel({
   memSheets, trash, trashCount,
   onCreateSheet, onRenameSheet, onDeleteSheet, onClearSheet,
-  onAddNames, onRemoveName, onRestoreVersion,
+  onAddNames, onRemoveName, onEditName, onRestoreVersion,
   onRestoreTrash, onPermanentDelete,
   onExportJSON, onExportCSV,
   onClose,
@@ -410,6 +515,7 @@ export default function MemoryPanel({
                   onClearAll={onClearSheet}
                   onAddName={onAddNames}
                   onRemoveName={onRemoveName}
+                  onEditName={onEditName}
                   onRestoreVersion={handleRestoreVersion}
                   hasVersion={(sheet._v1?.length ?? 0) > 0}
                 />

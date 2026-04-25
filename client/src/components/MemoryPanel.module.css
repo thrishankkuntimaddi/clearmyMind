@@ -242,41 +242,181 @@
   gap: 8px;
 }
 
-/* ── Name chips ── */
-.nameChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  border-radius: 99px;
-  padding: 3px 8px 3px 10px;
-  font-size: 11.5px;
-  color: #c4b5fd;
-  font-weight: 500;
-  transition: border-color 0.12s;
-}
-.chip:hover { border-color: rgba(139, 92, 246, 0.45); }
-
-.chipRemove {
-  background: none;
-  border: none;
-  color: rgba(196, 181, 253, 0.5);
+/* ── Sheet icon (unique emoji per sheet) ── */
+.sheetIcon {
   font-size: 14px;
+  flex-shrink: 0;
   line-height: 1;
-  cursor: pointer;
-  padding: 0;
+}
+
+/* ── Name table (safe list format, replaces chips) ── */
+.nameTable {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.nameTableHeader {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 10px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ── Name row ── */
+.nameRow {
   display: flex;
   align-items: center;
-  transition: color 0.12s;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 0.1s;
+  min-height: 36px;
 }
-.chipRemove:hover { color: #f87171; }
+.nameRow:last-child { border-bottom: none; }
+.nameRow:hover { background: rgba(139, 92, 246, 0.05); }
+
+.nameRowLabel {
+  flex: 1;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.nameRowLabel:hover { color: #c4b5fd; }
+
+.nameRowEditInput {
+  flex: 1;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.nameRowActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.nameRow:hover .nameRowActions { opacity: 1; }
+
+.nameRowEdit {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  font-family: inherit;
+  transition: color 0.1s, border-color 0.1s;
+}
+.nameRowEdit:hover { color: #a78bfa; border-color: rgba(139, 92, 246, 0.35); }
+
+.nameRowDelete {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 5px;
+  font-family: inherit;
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
+  line-height: 1;
+}
+.nameRowDelete:hover { color: #f87171; border-color: rgba(248, 113, 113, 0.25); background: rgba(248, 113, 113, 0.08); }
+
+/* 2-step confirm inline row */
+.nameRowConfirmText {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(251, 191, 36, 0.8);
+  white-space: nowrap;
+}
+
+.nameRowConfirmYes {
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  border-radius: 5px;
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.nameRowConfirmYes:hover { background: rgba(248, 113, 113, 0.28); }
+
+.nameRowConfirmNo {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.nameRowConfirmNo:hover { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
+
+/* 2-step Clear All confirm (in sheet header) */
+.clearConfirmText {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(251, 191, 36, 0.8);
+  white-space: nowrap;
+}
+
+.clearConfirmYes {
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 5px;
+  color: #f87171;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.clearConfirmYes:hover { background: rgba(248, 113, 113, 0.22); }
+
+.clearConfirmNo {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.clearConfirmNo:hover { background: rgba(255, 255, 255, 0.08); color: rgba(255, 255, 255, 0.7); }
 
 /* ── Inline add row ── */
 .addRow {
