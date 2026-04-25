@@ -10,50 +10,57 @@ export default function Groups({
   onDeleteGroup,
   onAddToGroup,
   onRemoveFromGroup,
-  draggingName,   // string | null — name being mobile-dragged; enables drop glow
+  draggingName,
 }) {
-  const [creating,   setCreating]   = useState(false)
-  const [newName,    setNewName]    = useState('')
-  const [editingId,  setEditingId]  = useState(null)
-  const [editDraft,  setEditDraft]  = useState('')
-  const [dragOverId, setDragOverId] = useState(null)
-  const [expandedId, setExpandedId] = useState(null)
+  const [creating,     setCreating]     = useState(false)
+  const [newName,      setNewName]      = useState('')
+  const [editingId,    setEditingId]    = useState(null)
+  const [editDraft,    setEditDraft]    = useState('')
+  const [dragOverId,   setDragOverId]   = useState(null)
+  const [expandedId,   setExpandedId]   = useState(null)
+  const [confirmDelId, setConfirmDelId] = useState(null)  // 2-step delete
 
   // ── Create ──────────────────────────────────────────────────────────────────
   function handleCreate() {
     const name = newName.trim()
-    if (name) onCreateGroup(name)
+    if (name) { onCreateGroup(name); setExpandedId(null) }
     setNewName('')
     setCreating(false)
   }
 
   // ── Rename ──────────────────────────────────────────────────────────────────
-  function startEdit(id, current) {
-    setEditingId(id)
-    setEditDraft(current)
-  }
-
+  function startEdit(id, current) { setEditingId(id); setEditDraft(current) }
   function commitEdit() {
     if (editDraft.trim()) onRenameGroup(editingId, editDraft.trim())
-    setEditingId(null)
-    setEditDraft('')
+    setEditingId(null); setEditDraft('')
   }
 
-  // ── Drop zone per group ─────────────────────────────────────────────────────
-  const handleDragOver = useCallback((e, id) => {
-    e.preventDefault()
+  // ── Delete (2-step) ─────────────────────────────────────────────────────────
+  function requestDelete(e, id) {
     e.stopPropagation()
+    setConfirmDelId(id)
+    // Auto-cancel confirm after 3s
+    setTimeout(() => setConfirmDelId(c => c === id ? null : c), 3000)
+  }
+  function confirmDelete(e, id) {
+    e.stopPropagation()
+    onDeleteGroup(id)
+    setConfirmDelId(null)
+    if (expandedId === id) setExpandedId(null)
+  }
+  function cancelDelete(e) { e.stopPropagation(); setConfirmDelId(null) }
+
+  // ── Drag-drop ───────────────────────────────────────────────────────────────
+  const handleDragOver = useCallback((e, id) => {
+    e.preventDefault(); e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
     setDragOverId(id)
   }, [])
-
   const handleDragLeave = useCallback((e) => {
     if (!e.currentTarget.contains(e.relatedTarget)) setDragOverId(null)
   }, [])
-
   const handleDrop = useCallback((e, groupId) => {
-    e.preventDefault()
-    setDragOverId(null)
+    e.preventDefault(); setDragOverId(null)
     const name = e.dataTransfer.getData('text/plain')
     if (name) onAddToGroup(groupId, name)
   }, [onAddToGroup])
@@ -61,7 +68,7 @@ export default function Groups({
   // ── Toggle expand ────────────────────────────────────────────────────────────
   function toggleExpand(e, id) {
     e.stopPropagation()
-    setExpandedId(prev => (prev === id ? null : id))
+    setExpandedId(prev => prev === id ? null : id)
   }
 
   const entries = Object.entries(groups)
@@ -118,9 +125,10 @@ export default function Groups({
         )}
 
         {entries.map(([id, group]) => {
-          const isActive   = activeGroupId === id
-          const isDragOver = dragOverId === id
-          const isExpanded = expandedId === id
+          const isActive    = activeGroupId === id
+          const isDragOver  = dragOverId === id
+          const isExpanded  = expandedId === id
+          const isConfirm   = confirmDelId === id
 
           return (
             <div
@@ -131,7 +139,7 @@ export default function Groups({
               onDragLeave={handleDragLeave}
               onDrop={e => handleDrop(e, id)}
             >
-              {/* Group header */}
+              {/* Group header row */}
               <div
                 className={styles.groupRow}
                 onClick={() => onSelectGroup(isActive ? null : id)}
@@ -141,9 +149,8 @@ export default function Groups({
                   className={styles.expandBtn}
                   onClick={e => toggleExpand(e, id)}
                   aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                >
-                  {isExpanded ? '▾' : '▸'}
-                </button>
+                  title={isExpanded ? 'Collapse' : 'Show members'}
+                >{isExpanded ? '▾' : '▸'}</button>
 
                 {/* Name / rename input */}
                 {editingId === id ? (
@@ -163,22 +170,49 @@ export default function Groups({
                     className={styles.groupName}
                     onDoubleClick={e => { e.stopPropagation(); startEdit(id, group.name) }}
                     title="Click to highlight · Double-click to rename"
-                  >
-                    {group.name}
-                  </span>
+                  >{group.name}</span>
                 )}
 
                 <span className={styles.count}>{group.members.length}</span>
 
-                <button
-                  className={styles.deleteBtn}
-                  onClick={e => { e.stopPropagation(); onDeleteGroup(id) }}
-                  title="Delete group"
-                  aria-label={`Delete ${group.name}`}
-                >×</button>
+                {/* ── Actions: rename + delete ── */}
+                <div className={styles.groupActions} onClick={e => e.stopPropagation()}>
+                  {/* Rename button */}
+                  {!isConfirm && (
+                    <button
+                      className={styles.renameBtn}
+                      onClick={e => { e.stopPropagation(); startEdit(id, group.name) }}
+                      title="Rename group"
+                      aria-label={`Rename ${group.name}`}
+                    >✎</button>
+                  )}
+
+                  {/* Delete — 2-step */}
+                  {!isConfirm ? (
+                    <button
+                      className={styles.deleteBtn}
+                      onClick={e => requestDelete(e, id)}
+                      title="Delete group"
+                      aria-label={`Delete ${group.name}`}
+                    >🗑</button>
+                  ) : (
+                    <>
+                      <button
+                        className={styles.confirmYes}
+                        onClick={e => confirmDelete(e, id)}
+                        title="Yes, delete"
+                      >Yes</button>
+                      <button
+                        className={styles.confirmNo}
+                        onClick={cancelDelete}
+                        title="Cancel"
+                      >No</button>
+                    </>
+                  )}
+                </div>
               </div>
 
-              {/* Members list (expanded) */}
+              {/* Members list */}
               {isExpanded && group.members.length > 0 && (
                 <ul className={styles.members}>
                   {group.members.map(name => (
@@ -196,9 +230,9 @@ export default function Groups({
                 </ul>
               )}
 
-              {/* Drop hint in expanded state when empty */}
+              {/* Drop hint when expanded and empty */}
               {isExpanded && group.members.length === 0 && (
-                <p className={styles.emptyMembers}>Drag names in to add them</p>
+                <p className={styles.emptyMembers}>Drag names here to add them</p>
               )}
             </div>
           )

@@ -262,31 +262,91 @@
   text-align: center;
 }
 
-.deleteBtn {
-  width: 15px;
-  height: 15px;
+/* ─── Group action buttons (always visible) ─── */
+.groupActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.renameBtn {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 20px;
+  height: 20px;
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 12px;
   padding: 0;
-  opacity: 0;
-  transition: opacity var(--transition), color var(--transition);
-  flex-shrink: 0;
   line-height: 1;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  flex-shrink: 0;
+  opacity: 0;
+}
+.groupRow:hover .renameBtn { opacity: 1; }
+.renameBtn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-color: var(--border-default);
 }
 
-.groupRow:hover .deleteBtn {
-  opacity: 1;
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0;
+  line-height: 1;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  flex-shrink: 0;
 }
-
 .deleteBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
   color: var(--danger);
+  border-color: rgba(239, 68, 68, 0.25);
 }
+
+/* 2-step delete confirm */
+.confirmYes {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background 0.15s;
+}
+.confirmYes:hover { background: rgba(239, 68, 68, 1); }
+
+.confirmNo {
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-default);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background 0.15s;
+}
+.confirmNo:hover { background: var(--bg-hover); }
 
 /* ─── Members list ─── */
 .members {
