@@ -935,7 +935,7 @@ export default function App() {
             names={displayNames}
             tags={displayTags}
             randomPicks={isMemoryMode ? new Set() : randomPicks}
-            highlightedNames={isMemoryMode ? new Set() : groupHighlightedNames}
+            highlightedNames={groupHighlightedNames}
             searchHighlighted={searchHighlighted}
             firstMatchName={firstMatchName}
             memoryNameSet={isMemoryMode ? new Set() : memoryNameSet}
