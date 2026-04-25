@@ -524,6 +524,72 @@
   background: rgba(139, 92, 246, 0.2);
 }
 
+/* ─── 📚 Memory toggle button ─── */
+.memToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(139, 92, 246, 0.06);
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  border-radius: 8px;
+  color: rgba(167, 139, 250, 0.55);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-left: 6px;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.memToggleBtn:hover {
+  background: rgba(139, 92, 246, 0.14);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #a78bfa;
+}
+
+/* Toggle is ON (tabs visible) */
+.memToggleBtnOn {
+  background: rgba(139, 92, 246, 0.14);
+  border-color: rgba(139, 92, 246, 0.45);
+  color: #a78bfa;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.12);
+}
+
+/* An active memory tab is selected */
+.memToggleBtnActive {
+  background: rgba(139, 92, 246, 0.18) !important;
+  border-color: rgba(139, 92, 246, 0.6) !important;
+  color: #c4b5fd !important;
+}
+
+/* Small count badge inside the toggle button */
+.memToggleCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: rgba(139, 92, 246, 0.25);
+  border-radius: 99px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #a78bfa;
+  letter-spacing: 0;
+}
+
+/* Empty hint when tabs are visible but no memory sheets exist */
+.memEmptyHint {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  color: rgba(167, 139, 250, 0.35);
+  padding: 0 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 
 /* ══════════════════════════════════════════════════
    MOBILE  ≤ 768px

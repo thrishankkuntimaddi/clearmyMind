@@ -238,12 +238,40 @@ export default function App() {
 
   const [showMemory,       setShowMemory]       = useState(false)
   const [showMemoryPrompt, setShowMemoryPrompt] = useState(false)
+  // Which memory sheet tab is open in the grid (null = session mode)
+  const [activeMemSheetId, setActiveMemSheetId] = useState(null)
 
   // Called only from Settings → Reset → with Memory Sheets checkbox ON.
   const resetMemory = useCallback(async () => {
     const ids = Object.keys(memSheets)
     await Promise.all(ids.map(id => deleteMemSheet(id)))
   }, [memSheets, deleteMemSheet])
+
+  // Soft-delete a memory tab; exit memory mode if it was active
+  const handleDeleteMemTab = useCallback(async (memId) => {
+    if (activeMemSheetId === memId) setActiveMemSheetId(null)
+    await deleteMemSheet(memId)
+  }, [activeMemSheetId, deleteMemSheet])
+
+  // ─── Computed display values (memory mode overrides session) ─────────────────
+  const isMemoryMode = !!activeMemSheetId && !!memSheets[activeMemSheetId]
+  const displayNames = isMemoryMode ? (memSheets[activeMemSheetId]?.names ?? []) : names
+  const displayTags  = isMemoryMode ? {} : tags
+
+  const handleGridAdd = useCallback((name) => {
+    if (isMemoryMode) return addNamesToMemSheet(activeMemSheetId, [name])
+    return addName(name)
+  }, [isMemoryMode, activeMemSheetId, addNamesToMemSheet, addName])
+
+  const handleGridRemove = useCallback((name) => {
+    if (isMemoryMode) return removeNameFromMemSheet(activeMemSheetId, name)
+    return removeName(name)
+  }, [isMemoryMode, activeMemSheetId, removeNameFromMemSheet, removeName])
+
+  const handleGridEdit = useCallback((oldName, newName) => {
+    if (isMemoryMode) return editNameInMemSheet(activeMemSheetId, oldName, newName)
+    return editName(oldName, newName)
+  }, [isMemoryMode, activeMemSheetId, editNameInMemSheet, editName])
 
 
 
@@ -390,14 +418,14 @@ export default function App() {
   const searchHighlighted = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return new Set()
-    return new Set(names.filter((n) => n.toLowerCase().startsWith(q)))
-  }, [query, names])
+    return new Set(displayNames.filter((n) => n.toLowerCase().startsWith(q)))
+  }, [query, displayNames])
 
   const firstMatchName = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return null
-    return names.find((n) => n.toLowerCase().startsWith(q)) ?? null
-  }, [query, names])
+    return displayNames.find((n) => n.toLowerCase().startsWith(q)) ?? null
+  }, [query, displayNames])
 
   useEffect(() => {
     if (!firstMatchName) return
@@ -657,7 +685,7 @@ export default function App() {
   const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
 
   // Smart bar modes
-  const exactExists  = query.trim() ? names.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
+  const exactExists  = query.trim() ? displayNames.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
   const isAddMode    = !!query.trim() && !exactExists
   const isSearchMode = !!query.trim() && searchHighlighted.size > 0
 
@@ -669,16 +697,25 @@ export default function App() {
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
           <span className={styles.title}>ClearMyMind</span>
-          {/* Count badge: shows memory sheet count when in memory mode */}
-          {names.length > 0 && (
+          {/* Count badge */}
+          {displayNames.length > 0 && (
             <span
               className={`${styles.count} ${
-                names.length >= 90 ? styles.countCritical :
-                names.length >= 80 ? styles.countWarn : ''}`}
+                !isMemoryMode && displayNames.length >= 90 ? styles.countCritical :
+                !isMemoryMode && displayNames.length >= 80 ? styles.countWarn : ''}`}
               aria-live="polite"
+              style={isMemoryMode ? { color: '#a78bfa', background: 'rgba(139,92,246,0.1)', borderColor: 'rgba(139,92,246,0.25)' } : {}}
             >
-              {names.length}
+              {displayNames.length}
             </span>
+          )}
+          {/* 📚 Memory mode badge */}
+          {isMemoryMode && (
+            <span style={{
+              fontSize: '10px', fontWeight: 700, color: '#a78bfa',
+              background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
+              borderRadius: '99px', padding: '2px 8px', letterSpacing: '0.03em',
+            }}>📚 Memory</span>
           )}
         </div>
 
@@ -804,32 +841,17 @@ export default function App() {
 
           <span className={styles.btnDivider} />
 
-          {/* 📚 → Memory — bulk import current sheet into a memory sheet */}
-          <ImportToMemory
-            sessionNames={names}
-            bagNames={bag}
-            memSheets={memSheets}
-            onCopy={async (sheetId) => {
-              await addNamesToMemSheet(sheetId, [...names, ...bag])
-            }}
-            onMove={async (sheetId) => {
-              await addNamesToMemSheet(sheetId, [...names, ...bag])
-              clearAll()
-              clearBag()
-              Object.entries(groups).forEach(([gid, g]) => {
-                const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
-                const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
-                if (!anyRemaining) deleteGroup(gid)
-              })
-            }}
-            onCreateAndCopy={async (sheetName) => {
-              const id = await createMemorySheet(sheetName)
-              if (id) await addNamesToMemSheet(id, [...names, ...bag])
-            }}
-            onCreateAndMove={async (sheetName) => {
-              const id = await createMemorySheet(sheetName)
-              if (id) {
-                await addNamesToMemSheet(id, [...names, ...bag])
+          {/* 📚 → Memory — bulk import (only in session mode) */}
+          {!isMemoryMode && (
+            <ImportToMemory
+              sessionNames={names}
+              bagNames={bag}
+              memSheets={memSheets}
+              onCopy={async (sheetId) => {
+                await addNamesToMemSheet(sheetId, [...names, ...bag])
+              }}
+              onMove={async (sheetId) => {
+                await addNamesToMemSheet(sheetId, [...names, ...bag])
                 clearAll()
                 clearBag()
                 Object.entries(groups).forEach(([gid, g]) => {
@@ -837,18 +859,35 @@ export default function App() {
                   const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
                   if (!anyRemaining) deleteGroup(gid)
                 })
-              }
-            }}
-          />
+              }}
+              onCreateAndCopy={async (sheetName) => {
+                const id = await createMemorySheet(sheetName)
+                if (id) await addNamesToMemSheet(id, [...names, ...bag])
+              }}
+              onCreateAndMove={async (sheetName) => {
+                const id = await createMemorySheet(sheetName)
+                if (id) {
+                  await addNamesToMemSheet(id, [...names, ...bag])
+                  clearAll()
+                  clearBag()
+                  Object.entries(groups).forEach(([gid, g]) => {
+                    const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
+                    const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
+                    if (!anyRemaining) deleteGroup(gid)
+                  })
+                }
+              }}
+            />
+          )}
 
           <button
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
-            onClick={clearAll}
-            disabled={!names.length}
-            aria-label="Clear current sheet"
-            title="Clear names from this sheet"
-          >Clear All</button>
+            onClick={isMemoryMode ? () => clearMemSheet(activeMemSheetId) : clearAll}
+            disabled={!displayNames.length}
+            aria-label={isMemoryMode ? 'Clear memory sheet' : 'Clear current sheet'}
+            title={isMemoryMode ? 'Remove all names from this memory sheet' : 'Clear names from this sheet'}
+          >{isMemoryMode ? 'Clear Memory' : 'Clear All'}</button>
           <button
             id="lock-btn"
             className={`${styles.actionBtn} ${styles.lock}`}
@@ -882,17 +921,17 @@ export default function App() {
           aria-label="Name list"
         >
           <NameGrid
-            names={names}
-            tags={tags}
-            randomPicks={randomPicks}
-            highlightedNames={groupHighlightedNames}
+            names={displayNames}
+            tags={displayTags}
+            randomPicks={isMemoryMode ? new Set() : randomPicks}
+            highlightedNames={isMemoryMode ? new Set() : groupHighlightedNames}
             searchHighlighted={searchHighlighted}
             firstMatchName={firstMatchName}
-            memoryNameSet={memoryNameSet}
-            onRemove={removeName}
-            onEdit={editName}
-            onTagSet={setTag}
-            onMobileLongPress={handleMobileLongPress}
+            memoryNameSet={isMemoryMode ? new Set() : memoryNameSet}
+            onRemove={handleGridRemove}
+            onEdit={handleGridEdit}
+            onTagSet={isMemoryMode ? () => {} : setTag}
+            onMobileLongPress={isMemoryMode ? () => {} : handleMobileLongPress}
           />
         </section>
 
@@ -1006,6 +1045,11 @@ export default function App() {
           onRename={renameSheet}
           onDelete={deleteSheet}
           onMoveName={handleMoveNameToSheet}
+          memSheets={memSheets}
+          activeMemSheetId={activeMemSheetId}
+          onSwitchMemSheet={setActiveMemSheetId}
+          onRenameMemSheet={renameMemorySheet}
+          onDeleteMemSheet={handleDeleteMemTab}
         />
       </div>
 
