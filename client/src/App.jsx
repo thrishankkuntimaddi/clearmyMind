@@ -290,28 +290,20 @@ export default function App() {
   // ─── Groups: active group for cell highlight ─────────────────────────────
   const [activeGroupId, setActiveGroupId] = useState(null)
 
-  // Filter groups to only those with ≥1 member in the CURRENT sheet's names.
-  // Groups are global but the panel must only surface groups relevant to
-  // the sheet being viewed. Empty sheet → zero groups shown (no clutter).
-  // A group spanning Sheet 2 and Sheet 3 correctly appears on both.
-  const sheetNameSet = useMemo(() => new Set(names), [names])
-  const sheetGroups  = useMemo(() => {
-    const filtered = {}
-    Object.entries(groups).forEach(([id, g]) => {
-      if (g.members.some(m => sheetNameSet.has(m))) filtered[id] = g
-    })
-    return filtered
-  }, [groups, sheetNameSet])
+  // Groups are GLOBAL — visible on all sheets and memory sheets.
+  // sheetGroups = all groups always (no filtering by current sheet).
+  const sheetGroups  = groups
 
-  // Deselect the active group if it has no members in the newly active sheet
-  // (prevents a stale highlight carrying over when switching sheets).
+
+  // Deselect the active group if it was deleted entirely
   useEffect(() => {
-    if (activeGroupId && !sheetGroups[activeGroupId]) setActiveGroupId(null)
-  }, [activeGroupId, sheetGroups])
+    if (activeGroupId && !groups[activeGroupId]) setActiveGroupId(null)
+  }, [activeGroupId, groups])
 
   const groupHighlightedNames = activeGroupId && groups[activeGroupId]
     ? new Set(groups[activeGroupId].members)
     : new Set()
+
 
   // Reload from storage when App Lock is lifted — no-op in Firestore mode,
   // but kept so the hook contract stays identical
