@@ -5,6 +5,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import styles from './MemoryPanel.module.css'
 
+// ─── Available icons for sheets ───────────────────────────────────────────────
+const ICONS = [
+  '📚','🗂️','📁','📋','📌','📍','🔖','📎','🧷','📝','📒','📓','📔','📕','📗','📘','📙',
+  '🧠','💡','⭐','🌟','✨','🔥','💎','🏆','🎯','🎪','🌈','🌸','🌺','🌻','🌹',
+  '❤️','💙','💜','💚','🖤','🤍','🩷','🩵','🩶','💛','🧡',
+  '👤','👥','🫂','💼','🏠','🏡','🗺️','🌍','🎭','🎬',
+]
+
 // ─── Trash: human-readable days since deletion ────────────────────────────────
 function daysSince(deletedAt) {
   if (!deletedAt) return '?'
@@ -98,15 +106,19 @@ function NameRow({ sheetId, name, onRemove, onEdit }) {
 function SheetCard({
   sheetId, sheet, onRename, onDelete, onClearAll,
   onAddName, onRemoveName, onEditName, onRestoreVersion, hasVersion,
+  onChangeIcon,
 }) {
-  const [expanded,  setExpanded]  = useState(true)
-  const [renaming,  setRenaming]  = useState(false)
-  const [draft,     setDraft]     = useState('')
-  const [addDraft,  setAddDraft]  = useState('')
-  const [adding,    setAdding]    = useState(false)
-  const [clearing,  setClearing]  = useState(false)
-  const renameRef = useRef(null)
-  const addRef    = useRef(null)
+  const [expanded,    setExpanded]    = useState(true)
+  const [renaming,    setRenaming]    = useState(false)
+  const [draft,       setDraft]       = useState('')
+  const [addDraft,    setAddDraft]    = useState('')
+  const [adding,      setAdding]      = useState(false)
+  const [clearing,    setClearing]    = useState(false)
+  const [iconOpen,    setIconOpen]    = useState(false)   // icon picker open?
+  const renameRef   = useRef(null)
+  const addRef      = useRef(null)
+  const iconBtnRef  = useRef(null)
+  const pickerRef   = useRef(null)
 
   useEffect(() => { if (renaming) renameRef.current?.focus() }, [renaming])
   useEffect(() => { if (adding)   addRef.current?.focus()    }, [adding])
@@ -115,6 +127,23 @@ function SheetCard({
     const t = setTimeout(() => setClearing(false), 4000)
     return () => clearTimeout(t)
   }, [clearing])
+
+  // Close icon picker on outside click
+  useEffect(() => {
+    if (!iconOpen) return
+    function onDoc(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target) &&
+          iconBtnRef.current && !iconBtnRef.current.contains(e.target)) {
+        setIconOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('touchstart', onDoc)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('touchstart', onDoc)
+    }
+  }, [iconOpen])
 
   function commitRename() {
     const t = draft.trim()
@@ -136,7 +165,33 @@ function SheetCard({
       {/* Sheet header */}
       <div className={styles.sheetHeader} onClick={() => !renaming && setExpanded(x => !x)}>
         <span className={styles.sheetChevron}>{expanded ? '▾' : '▸'}</span>
-        <span className={styles.sheetIcon}>{sheet.icon ?? '📚'}</span>
+
+        {/* 📚 Icon — click to open picker */}
+        <span
+          ref={iconBtnRef}
+          className={styles.sheetIcon}
+          style={{ position: 'relative' }}
+          onClick={e => { e.stopPropagation(); setIconOpen(o => !o) }}
+          title="Click to change icon"
+        >
+          {sheet.icon ?? '📚'}
+          {iconOpen && (
+            <div
+              ref={pickerRef}
+              className={styles.iconPicker}
+              onClick={e => e.stopPropagation()}
+            >
+              {ICONS.map(ic => (
+                <button
+                  key={ic}
+                  className={`${styles.iconPickerBtn} ${ic === (sheet.icon ?? '📚') ? styles.iconPickerSelected : ''}`}
+                  onClick={() => { onChangeIcon?.(sheetId, ic); setIconOpen(false) }}
+                  title={ic}
+                >{ic}</button>
+              ))}
+            </div>
+          )}
+        </span>
 
         {renaming ? (
           <input
@@ -206,22 +261,24 @@ function SheetCard({
             <p className={styles.emptyHint}>No names yet. Add one below.</p>
           )}
 
-          {/* Safe name table */}
+          {/* Safe name table with scrollable body */}
           {!isEmpty && (
             <div className={styles.nameTable}>
               <div className={styles.nameTableHeader}>
                 <span>Name</span>
                 <span>Actions</span>
               </div>
-              {names.map(name => (
-                <NameRow
-                  key={name}
-                  sheetId={sheetId}
-                  name={name}
-                  onRemove={onRemoveName}
-                  onEdit={onEditName}
-                />
-              ))}
+              <div className={styles.nameTableBody}>
+                {names.map(name => (
+                  <NameRow
+                    key={name}
+                    sheetId={sheetId}
+                    name={name}
+                    onRemove={onRemoveName}
+                    onEdit={onEditName}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
@@ -402,6 +459,7 @@ export default function MemoryPanel({
   onAddNames, onRemoveName, onEditName, onRestoreVersion,
   onRestoreTrash, onPermanentDelete,
   onExportJSON, onExportCSV,
+  onSetIcon,
   onClose,
 }) {
   const [tab,          setTab]          = useState('sheets') // 'sheets' | 'trash'
@@ -518,6 +576,7 @@ export default function MemoryPanel({
                   onEditName={onEditName}
                   onRestoreVersion={handleRestoreVersion}
                   hasVersion={(sheet._v1?.length ?? 0) > 0}
+                  onChangeIcon={onSetIcon}
                 />
               ))}
 

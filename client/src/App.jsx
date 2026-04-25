@@ -229,7 +229,7 @@ export default function App() {
   // GUARANTEE: This hook is NEVER called by blast, clearAll, or auto-wipe.
   const {
     memSheets, trash, trashCount, memoryNameSet,
-    createMemorySheet, renameMemorySheet, deleteMemSheet,
+    createMemorySheet, renameMemorySheet, deleteMemSheet, setMemSheetIcon,
     restoreSheet, permanentDelete,
     addNamesToMemSheet, removeNameFromMemSheet, editNameInMemSheet, clearMemSheet,
     restorePreviousVersion,
@@ -1050,6 +1050,7 @@ export default function App() {
           onPermanentDelete={permanentDelete}
           onExportJSON={exportAsJSON}
           onExportCSV={exportAsCSV}
+          onSetIcon={setMemSheetIcon}
           onClose={() => setShowMemory(false)}
         />
       )}
