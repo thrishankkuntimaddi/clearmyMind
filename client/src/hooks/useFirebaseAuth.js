@@ -5,15 +5,16 @@ import {
   signInWithEmail,
   signUpWithEmail,
   sendVerification,
+  sendPasswordReset,
+  reauthenticate,
   signOut,
+  currentUser,
   deleteAccount as fbDeleteAccount,
 } from '../lib/auth.js'
-import { stopListening } from '../lib/db.js'
+import { clearLocalPrefs } from './useFirestoreData.js'
 
 // How long to wait after receiving a null auth event before treating it as a real sign-out.
-// Firebase fires onAuthStateChanged(null) transiently while it refreshes the ID token
-// (which expires every 1 hour). Without this grace period, a mid-refresh null event
-// immediately redirects the user to the login screen even though they are still logged in.
+// Guards against a transient null while the SDK restores the session on start-up.
 const NULL_AUTH_GRACE_MS = 900
 
 // authState: 'not-configured' | 'loading' | 'unauthenticated' | 'unverified' | 'authenticated'
@@ -21,39 +22,31 @@ export function useFirebaseAuth() {
   const [authState, setAuthState] = useState(isConfigured ? 'loading' : 'not-configured')
   const [user, setUser]           = useState(null)
 
-  // Ref to the pending "sign-out" timer so we can cancel it if the user comes back
   const signOutTimer = useRef(null)
 
+  const applyUser = useCallback((firebaseUser) => {
+    setUser(firebaseUser)
+    setAuthState(firebaseUser.emailVerified ? 'authenticated' : 'unverified')
+  }, [])
+
   useEffect(() => {
-    // Guard: skip listener if Firebase was not configured at build time
     if (!isConfigured) return
     const unsub = onAuthChange((firebaseUser) => {
-      // Cancel any pending deferred sign-out — a new event arrived
       clearTimeout(signOutTimer.current)
-
-      if (!firebaseUser) {
-        // ── Transient null guard ──────────────────────────────────────────
-        // Firebase emits null briefly while refreshing the ID token (every ~1 h).
-        // We wait NULL_AUTH_GRACE_MS before treating null as a real sign-out.
-        // If a non-null event arrives within that window, the timer is cancelled
-        // above and the user stays logged in.
+      if (firebaseUser) {
+        applyUser(firebaseUser)
+      } else {
         signOutTimer.current = setTimeout(() => {
           setUser(null)
           setAuthState('unauthenticated')
         }, NULL_AUTH_GRACE_MS)
-      } else if (!firebaseUser.emailVerified) {
-        setUser(firebaseUser)
-        setAuthState('unverified')
-      } else {
-        setUser(firebaseUser)
-        setAuthState('authenticated')
       }
     })
     return () => {
       clearTimeout(signOutTimer.current)
       unsub()
     }
-  }, [])
+  }, [applyUser])
 
   // ─── Sign in ──────────────────────────────────────────────────────────────
   const signIn = useCallback(async (email, password) => {
@@ -61,7 +54,6 @@ export function useFirebaseAuth() {
       await signInWithEmail(email, password)
       return { success: true }
     } catch (err) {
-      console.error('[ClearMyMind] signIn error:', err.code, err.message)
       return { success: false, error: mapFirebaseError(err.code) }
     }
   }, [])
@@ -77,49 +69,83 @@ export function useFirebaseAuth() {
     }
   }, [])
 
-  // ─── Resend verification email ────────────────────────────────────────────
+  // ─── Forgot password ─────────────────────────────────────────────────────
+  // Always reports success so the form can't be used to probe which emails
+  // have accounts.
+  const resetPassword = useCallback(async (email) => {
+    try {
+      await sendPasswordReset(email)
+    } catch (err) {
+      if (err.code === 'auth/invalid-email') return { success: false, error: mapFirebaseError(err.code) }
+      if (err.code === 'auth/too-many-requests') return { success: false, error: mapFirebaseError(err.code) }
+    }
+    return { success: true }
+  }, [])
+
+  // ─── Email verification ───────────────────────────────────────────────────
   const resendVerification = useCallback(async () => {
     if (!user) return { success: false }
     try {
       await sendVerification(user)
       return { success: true }
-    } catch {
-      return { success: false }
+    } catch (err) {
+      return { success: false, error: mapFirebaseError(err.code) }
     }
   }, [user])
 
+  /** Reload the user from Firebase; moves on if the email is now verified. */
+  const checkVerified = useCallback(async () => {
+    const u = currentUser()
+    if (!u) return false
+    try {
+      await u.reload()
+      if (u.emailVerified) {
+        await u.getIdToken(true)   // refresh token so it carries email_verified
+        applyUser(u)
+        return true
+      }
+    } catch (err) {
+      console.warn('[ClearMyMind] verification check failed:', err.code)
+    }
+    return false
+  }, [applyUser])
+
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const signOutUser = useCallback(async () => {
-    stopListening()  // clear Firestore listeners + cache before signing out
-    // Clear device-local App Lock state so the next account/user on this
-    // device starts fresh with no lock enforced.
-    ;[
-      'clearmind_password_hash',
-      'clearmind_cred_id',
-      'clearmind_nolock',
-      'clearmind_applock_v2',
-    ].forEach((k) => localStorage.removeItem(k))
+    clearLocalPrefs()
     await signOut()
   }, [])
 
   // ─── Delete Firebase account ──────────────────────────────────────────────
-  const deleteAccount = useCallback(async () => {
-    if (!user) return { success: false }
+  // Order matters: verify the password FIRST, so a failure can't leave the
+  // account alive with its data already wiped (or the reverse).
+  const deleteAccount = useCallback(async (password, deleteData) => {
+    const u = currentUser()
+    if (!u) return { success: false, error: 'Not signed in.' }
     try {
-      await fbDeleteAccount(user)
-      // Explicitly clear Firestore listeners + cache, then force the UI back to
-      // the login screen. We don't rely solely on onAuthStateChanged because
-      // Firebase may not fire it reliably after deleteUser in all browsers.
-      stopListening()
+      await reauthenticate(u, password)
+    } catch (err) {
+      return { success: false, error: mapFirebaseError(err.code) }
+    }
+    try {
+      const ok = await deleteData()
+      if (!ok) return { success: false, error: 'Could not delete your data. Nothing was removed from your account.' }
+      await fbDeleteAccount(u)
+      clearLocalPrefs()
       setUser(null)
       setAuthState('unauthenticated')
       return { success: true }
     } catch (err) {
-      return { success: false, error: err.message }
+      return { success: false, error: mapFirebaseError(err.code) }
     }
-  }, [user])
+  }, [])
 
-  return { authState, user, signIn, signUp, resendVerification, signOutUser, deleteAccount }
+  return {
+    authState, user,
+    signIn, signUp, resetPassword,
+    resendVerification, checkVerified,
+    signOutUser, deleteAccount,
+  }
 }
 
 // ─── Firebase error code → human-readable message ─────────────────────────────
@@ -132,7 +158,7 @@ function mapFirebaseError(code) {
     case 'auth/email-already-in-use':
       return 'An account with this email already exists.'
     case 'auth/weak-password':
-      return 'Password must be at least 6 characters.'
+      return 'Password must be at least 8 characters.'
     case 'auth/invalid-email':
       return 'Please enter a valid email address.'
     case 'auth/too-many-requests':

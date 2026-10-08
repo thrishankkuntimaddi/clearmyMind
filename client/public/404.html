@@ -2,17 +2,9 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <script>
-      // GitHub Pages SPA redirect — preserves the path and query string
-      // so that hard refreshes on sub-routes don't 404.
-      const l = window.location
-      const base = '/clearmyMind'
-      l.replace(
-        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-        base + '/?p=' + encodeURIComponent(l.pathname.slice(base.length) + l.search) +
-        (l.hash ? '&hash=' + encodeURIComponent(l.hash) : '')
-      )
-    </script>
+    <title>ClearMyMind</title>
+    <!-- ClearMyMind is a single-page app with no sub-routes: send any unknown path home. -->
+    <meta http-equiv="refresh" content="0; url=/clearmyMind/" />
   </head>
   <body></body>
 </html>

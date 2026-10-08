@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react'
 import styles from './VerifyEmailScreen.module.css'
 
-export default function VerifyEmailScreen({ user, onResend, onSignOut }) {
+export default function VerifyEmailScreen({ user, onResend, onCheckVerified, onSignOut }) {
+  const [checking, setChecking] = useState(false)
+  const [notYet, setNotYet]     = useState(false)
   const [sending, setSending] = useState(false)
   const [sent, setSent]       = useState(false)
   const [signingOut, setSigningOut] = useState(false)
@@ -16,6 +18,14 @@ export default function VerifyEmailScreen({ user, onResend, onSignOut }) {
       setTimeout(() => setSent(false), 8000)
     }
   }, [sending, sent, onResend])
+
+  const handleCheck = useCallback(async () => {
+    setChecking(true)
+    setNotYet(false)
+    const ok = await onCheckVerified()
+    setChecking(false)
+    if (!ok) setNotYet(true)
+  }, [onCheckVerified])
 
   const handleSignOut = useCallback(async () => {
     setSigningOut(true)
@@ -46,7 +56,22 @@ export default function VerifyEmailScreen({ user, onResend, onSignOut }) {
           </p>
         )}
 
+        {notYet && (
+          <p className={styles.sentBadge} role="status">
+            Not verified yet — open the link in your inbox first.
+          </p>
+        )}
+
         <div className={styles.actions}>
+          <button
+            id="verified-continue-btn"
+            className={styles.resendBtn}
+            onClick={handleCheck}
+            disabled={checking}
+          >
+            {checking ? '…Checking' : "✓ I've verified"}
+          </button>
+
           <button
             id="resend-email-btn"
             className={styles.resendBtn}
@@ -67,7 +92,7 @@ export default function VerifyEmailScreen({ user, onResend, onSignOut }) {
         </div>
 
         <p className={styles.tip}>
-          💡 After verifying, refresh this page or sign in again.
+          💡 Can't find it? Check your spam folder.
         </p>
       </div>
     </div>

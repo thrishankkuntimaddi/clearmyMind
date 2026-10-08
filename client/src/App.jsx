@@ -1,604 +1,236 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useAuth } from './hooks/useAuth.js'
-import { useAutoWipe } from './hooks/useAutoWipe.js'
 import { useFirebaseAuth } from './hooks/useFirebaseAuth.js'
 import { useFirestoreData } from './hooks/useFirestoreData.js'
-import { useMemorySheets } from './hooks/useMemorySheets.js'
 import { buildFullSnapshot, isSnapshot, parseSnapshot } from './utils/snapshot.js'
-import { stopListening } from './lib/db.js'
-import AuthScreen from './components/AuthScreen.jsx'
+import { cleanName } from './utils/validate.js'
 import FirebaseLoginScreen from './components/FirebaseLoginScreen.jsx'
 import VerifyEmailScreen from './components/VerifyEmailScreen.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import NameGrid from './components/NameGrid.jsx'
-import Bag from './components/Bag.jsx'
-import Groups from './components/Groups.jsx'
 import BlastAnimation from './components/BlastAnimation.jsx'
 import CongratsScreen from './components/CongratsScreen.jsx'
 import LoadModal from './components/LoadModal.jsx'
 import SheetBar from './components/SheetBar.jsx'
 import MobileDragOverlay from './components/MobileDragOverlay.jsx'
-import MemoryPanel, { MemoryPrompt } from './components/MemoryPanel.jsx'
 import styles from './App.module.css'
 
-// ─── ImportToMemory — dropdown to bulk copy/move session names into a memory sheet
-function ImportToMemory({ sessionNames, bagNames = [], memSheets, onCopy, onMove, onCreateAndCopy, onCreateAndMove }) {
-  const [open,     setOpen]     = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [newName,  setNewName]  = useState('')
-  const [busy,     setBusy]     = useState(false)
-  const boxRef = useRef(null)
-  const newRef = useRef(null)
+const UNDO_MS = 8000
 
-  useEffect(() => { if (creating) newRef.current?.focus() }, [creating])
-
-  // Close on outside click / Escape
-  useEffect(() => {
-    if (!open) return
-    function onDoc(e) {
-      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false)
-    }
-    function onKey(e) { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown',   onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown',   onKey)
-    }
-  }, [open])
-
-  async function run(fn) {
-    setBusy(true)
-    await fn()
-    setBusy(false)
-    setOpen(false)
-    setCreating(false)
-    setNewName('')
-  }
-
-  async function handleCreate(e, mode) {
-    e.preventDefault()
-    const t = newName.trim()
-    if (!t) return
-    if (mode === 'move') run(() => onCreateAndMove(t))
-    else                 run(() => onCreateAndCopy(t))
-  }
-
-  const sheetList = Object.entries(memSheets)
-  const disabled   = !sessionNames.length && !bagNames.length
-  const totalCount = sessionNames.length + bagNames.length
-  const bagOnly    = bagNames.length > 0
-
+function FullScreenMessage({ children, color = '#a855f7' }) {
   return (
-    <div style={{ position: 'relative', flexShrink: 0 }} ref={boxRef}>
-      <button
-        id="import-to-memory-btn"
-        className={`${styles.actionBtn} ${styles.importMemBtn} ${open ? styles.importMemBtnOpen : ''}`}
-        onClick={() => !disabled && setOpen(p => !p)}
-        disabled={disabled}
-        title={disabled ? 'No names to save' : `Save ${totalCount} name${totalCount !== 1 ? 's' : ''} (${sessionNames.length} active${bagOnly ? ` + ${bagNames.length} in bag` : ''}) to a Memory Sheet`}
-        aria-label="Import to Memory Sheet"
-      >
-        📚 → Memory {totalCount > 0 ? `(${totalCount})` : ''}
-      </button>
-
-      {open && (
-        <div className={styles.importMemPicker}>
-          <p className={styles.importMemTitle}>
-            Save {sessionNames.length} name{sessionNames.length !== 1 ? 's' : ''}
-            {bagOnly ? <span style={{ color: 'rgba(251,191,36,0.75)', marginLeft: 4 }}>+ {bagNames.length} bag</span> : ''}
-            {' '}to Memory
-          </p>
-
-          {sheetList.length === 0 && !creating && (
-            <p className={styles.importMemEmpty}>No memory sheets yet — create one below.</p>
-          )}
-
-          {sheetList.map(([id, sh]) => (
-            <div key={id} className={styles.importMemRow}>
-              <span className={styles.importMemName}>{sh.name}</span>
-              <span className={styles.importMemCount}>{sh.names?.length ?? 0}</span>
-              <div className={styles.importMemActions}>
-                <button
-                  className={styles.importCopyBtn}
-                  onClick={() => run(() => onCopy(id))}
-                  disabled={busy}
-                  title="Copy names to memory (keep in session)"
-                >
-                  Copy
-                </button>
-                <button
-                  className={styles.importMoveBtn}
-                  onClick={() => run(() => onMove(id))}
-                  disabled={busy}
-                  title="Move to memory (removes from session)"
-                >
-                  Move
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {creating ? (
-            <form className={styles.importNewForm}>
-              <input
-                ref={newRef}
-                className={styles.importNewInput}
-                placeholder="New sheet name…"
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
-                onKeyDown={e => e.key === 'Escape' && setCreating(false)}
-                disabled={busy}
-              />
-              <button
-                type="submit"
-                className={styles.importCopyBtn}
-                onClick={e => handleCreate(e, 'copy')}
-                disabled={!newName.trim() || busy}
-              >Copy</button>
-              <button
-                type="submit"
-                className={styles.importMoveBtn}
-                onClick={e => handleCreate(e, 'move')}
-                disabled={!newName.trim() || busy}
-              >Move</button>
-            </form>
-          ) : (
-            <button
-              className={styles.importNewBtn}
-              onClick={() => setCreating(true)}
-              disabled={busy}
-            >
-              + New Memory Sheet
-            </button>
-          )}
-
-          <p className={styles.importMemHint}>
-            <strong>Copy</strong> keeps session intact &nbsp;·&nbsp; <strong>Move</strong> removes names, bag &amp; empty groups
-          </p>
-        </div>
-      )}
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      height: '100dvh', background: '#0b0b0f', color, gap: '12px', padding: '24px',
+      fontFamily: 'Inter, system-ui, sans-serif', textAlign: 'center',
+    }}>
+      {children}
     </div>
   )
 }
 
-// ─── Pick 3 unique indices from [1..n] ────────────────────────────────────────
-function pickThree(n) {
-  if (n < 3) return new Set()
-  const picks = new Set()
-  while (picks.size < 3) picks.add(Math.floor(Math.random() * n) + 1)
-  return picks
-}
-
 export default function App() {
-  // ─── Firebase Auth (cloud identity) ──────────────────────────────────────
+  // ─── Firebase Auth ────────────────────────────────────────────────────────
   const {
     authState, user,
-    signIn, signUp, signOutUser, resendVerification, deleteAccount,
+    signIn, signUp, resetPassword, resendVerification, checkVerified,
+    signOutUser, deleteAccount,
   } = useFirebaseAuth()
 
-  // ─── Security wipe callback ────────────────────────────────────────────────
-  // Called by useAuth when 3 consecutive wrong passwords are entered.
-  // App.jsx owns this because it has access to both the db layer (stopListening)
-  // and the Firebase auth layer (signOutUser).
-  //
-  // Flow:  stop Firestore → clear device lock state → sign out → hard reload
-  //
-  // The hard reload is intentional: it guarantees zero React state, zero
-  // Firestore IndexedDB cache, and zero in-memory data survives the wipe.
-  async function handleWipe() {
-    // 1. Tear down all Firestore real-time listeners and clear in-memory cache
-    stopListening()
-    // 2. Clear every App Lock key stored on THIS device
-    ;[
-      'clearmind_password_hash',
-      'clearmind_cred_id',
-      'clearmind_nolock',
-      'clearmind_applock_v2',
-    ].forEach((k) => localStorage.removeItem(k))
-    // 3. Sign out of Firebase (best-effort — the reload is the real safety net)
-    try { await signOutUser() } catch (_) { /* ignore */ }
-    // 4. Hard reload: wipes React state, Firestore IndexedDB, and all caches.
-    //    Using replace() so the wipe page is not in the browser history.
-    window.location.replace('/')
-  }
-
-  // ─── App Lock (local device security — device-specific) ───────────────────
+  // ─── Data (only loads once the email is verified) ─────────────────────────
   const {
-    status, attemptsLeft, biometricAvailable,
-    bioSetupState, enrollBiometric, skipBioEnroll,
-    setupPassword, login, loginBiometric, lock, noLock, toggleNoLock,
-    isLockEnabled, changePassword, disableLock, enableLock,
-  } = useAuth(handleWipe)
+    status, error, clearError,
+    sheets, activeSheetId, namesBySheet, tagsBySheet,
+    switchSheet, addSheet, renameSheet, deleteSheet, moveNameToSheet,
+    names, addName, addNames, editName, removeName, clearSheet, restoreCleared,
+    tags, setTag, clearTags,
+    restoreFullSnapshot, deleteAllData,
+  } = useFirestoreData(authState === 'authenticated' ? user?.uid : undefined)
 
-  // ─── Firestore data (replaces all localStorage data hooks) ───────────────
-  // uid is undefined when not authenticated — hook returns empty defaults safely
-  const {
-    sheets, activeSheetId, addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
-    names, addName, editName, removeName, clearAll, clearEverything, reloadFromStorage,
-    namesBySheet, tagsBySheet, restoreFullSnapshot,
-    tags, setTag, clearTags, mergeTags,
-    bag, addToBag, removeFromBag, clearBag, mergeBag,
-    groups, createGroup, renameGroup, deleteGroup,
-    addToGroup, removeFromGroup, mergeGroups,
-    noClear, toggleNoClear,
-    writeError, clearWriteError,
-  } = useFirestoreData(user?.uid)
+  // ─── Toast (with optional action button) ──────────────────────────────────
+  const [toast, setToast] = useState(null)   // { text, action?: { label, run } }
+  const toastTimer = useRef(null)
+  const showToast = useCallback((text, action = null, ms = 2500) => {
+    clearTimeout(toastTimer.current)
+    setToast({ text, action })
+    toastTimer.current = setTimeout(() => setToast(null), ms)
+  }, [])
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
 
-  // ─── Memory Sheets (persistent layer — isolated from active session) ───────────
-  // GUARANTEE: This hook is NEVER called by blast, clearAll, or auto-wipe.
-  const {
-    memSheets, trash, trashCount, memoryNameSet, memoryIconMap,
-    createMemorySheet, renameMemorySheet, deleteMemSheet, setMemSheetIcon,
-    restoreSheet, permanentDelete,
-    addNamesToMemSheet, removeNameFromMemSheet, editNameInMemSheet, clearMemSheet,
-    restorePreviousVersion,
-    exportAsJSON, exportAsCSV,
-  } = useMemorySheets(user?.uid)
-
-  const [showMemory,       setShowMemory]       = useState(false)
-  const [showMemoryPrompt, setShowMemoryPrompt] = useState(false)
-  const [showMemTabs,      setShowMemTabs]      = useState(false)  // toggle memory tabs in SheetBar
-  // Which memory sheet tab is open in the grid (null = session mode)
-  const [activeMemSheetId, setActiveMemSheetId] = useState(null)
-
-  // Called only from Settings → Reset → with Memory Sheets checkbox ON.
-  const resetMemory = useCallback(async () => {
-    const ids = Object.keys(memSheets)
-    await Promise.all(ids.map(id => deleteMemSheet(id)))
-  }, [memSheets, deleteMemSheet])
-
-  // Soft-delete a memory tab; exit memory mode if it was active
-  const handleDeleteMemTab = useCallback(async (memId) => {
-    if (activeMemSheetId === memId) setActiveMemSheetId(null)
-    await deleteMemSheet(memId)
-  }, [activeMemSheetId, deleteMemSheet])
-
-  // ─── Computed display values (memory mode overrides session) ─────────────────
-  const isMemoryMode = !!activeMemSheetId && !!memSheets[activeMemSheetId]
-  const displayNames = isMemoryMode ? (memSheets[activeMemSheetId]?.names ?? []) : names
-  const displayTags  = tags   // tags work by name — same in session or memory mode
-
-  const handleGridAdd = useCallback((name) => {
-    if (isMemoryMode) return addNamesToMemSheet(activeMemSheetId, [name])
-    return addName(name)
-  }, [isMemoryMode, activeMemSheetId, addNamesToMemSheet, addName])
-
-  const handleGridRemove = useCallback((name) => {
-    if (isMemoryMode) return removeNameFromMemSheet(activeMemSheetId, name)
-    return removeName(name)
-  }, [isMemoryMode, activeMemSheetId, removeNameFromMemSheet, removeName])
-
-  const handleGridEdit = useCallback((oldName, newName) => {
-    if (isMemoryMode) return editNameInMemSheet(activeMemSheetId, oldName, newName)
-    return editName(oldName, newName)
-  }, [isMemoryMode, activeMemSheetId, editNameInMemSheet, editName])
-
-
-
-  // ─── Bag: move name grid ↔ bag ────────────────────────────────────────────
-  const moveToBag = useCallback((name) => {
-    removeName(name)
-    addToBag(name)
-  }, [removeName, addToBag])
-
-  const restoreFromBag = useCallback((name) => {
-    removeFromBag(name)
-    addName(name)
-  }, [removeFromBag, addName])
-
-  // ─── Groups: active group for cell highlight ─────────────────────────────
-  const [activeGroupId, setActiveGroupId] = useState(null)
-
-  // Groups are GLOBAL — visible on all sheets and memory sheets.
-  // sheetGroups = all groups always (no filtering by current sheet).
-  const sheetGroups  = groups
-
-
-  // Deselect the active group if it was deleted entirely
-  useEffect(() => {
-    if (activeGroupId && !groups[activeGroupId]) setActiveGroupId(null)
-  }, [activeGroupId, groups])
-
-  const groupHighlightedNames = activeGroupId && groups[activeGroupId]
-    ? new Set(groups[activeGroupId].members)
-    : new Set()
-
-
-  // Reload from storage when App Lock is lifted — no-op in Firestore mode,
-  // but kept so the hook contract stays identical
-  const prevStatus = useRef(status)
-  useEffect(() => {
-    if (prevStatus.current !== 'unlocked' && status === 'unlocked') reloadFromStorage()
-    prevStatus.current = status
-  }, [status, reloadFromStorage])
-
-  // ─── Auto-wipe ───────────────────────────────────────────────────────────
-  const { phase, countdown, handleWait, handleBlastComplete, handleCongratsClose }
-    = useAutoWipe(noClear ? 0 : names.length)
-
-  const capturedNames = useRef([])
-  const hasBlasted    = useRef(false)
+  // ─── Clear ritual: confirm → blast → congrats → Undo toast ───────────────
+  const [phase, setPhase]               = useState('idle')  // idle | blasting | congrats
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [cleared, setCleared]           = useState(null)   // what the last clear removed
 
   useEffect(() => {
-    if (phase === 'blasting' && !hasBlasted.current) {
-      hasBlasted.current = true
-      capturedNames.current = [...names]
-      clearAll()
-    }
-    if (phase === 'idle') {
-      hasBlasted.current = false
-      setShowMemoryPrompt(false)
-    }
-  }, [phase]) // eslint-disable-line
+    if (!confirmClear) return
+    const t = setTimeout(() => setConfirmClear(false), 3000)
+    return () => clearTimeout(t)
+  }, [confirmClear])
 
-  // After blast completes → show Memory prompt if user has names to potentially save
-  const handleBlastCompleteWithMemory = useCallback(() => {
-    if (capturedNames.current.length > 0) {
-      setShowMemoryPrompt(true)
-    } else {
-      handleBlastComplete()
-    }
-  }, [handleBlastComplete])
+  const handleClear = useCallback(() => {
+    if (!confirmClear) { setConfirmClear(true); return }
+    setConfirmClear(false)
+    const removed = clearSheet()
+    if (!removed?.names.length) return
+    setCleared(removed)
+    setPhase('blasting')
+  }, [confirmClear, clearSheet])
 
-  async function handleMemorySave(sheetId, selectedNames) {
-    await addNamesToMemSheet(sheetId, selectedNames)
-    setShowMemoryPrompt(false)
-    handleBlastComplete()
-  }
+  const handleCongratsClose = useCallback(() => {
+    setPhase('idle')
+    setCleared(null)
+    if (!cleared) return
+    const n = cleared.names.length
+    showToast(`Cleared ${n} name${n !== 1 ? 's' : ''}`, {
+      label: 'Undo',
+      run: () => { restoreCleared(cleared); showToast('↩ Restored') },
+    }, UNDO_MS)
+  }, [cleared, restoreCleared, showToast])
 
-  function handleMemoryDiscard() {
-    setShowMemoryPrompt(false)
-    handleBlastComplete()
-  }
-
-  // ─── Smart bar ───────────────────────────────────────────────────────────
-  const [query, setQuery]           = useState('')
-  const smartInputRef               = useRef(null)
-  const smartBarRef                 = useRef(null)
+  // ─── Smart bar ────────────────────────────────────────────────────────────
+  const [query, setQuery]               = useState('')
   const [smartShaking, setSmartShaking] = useState(false)
+  const smartInputRef = useRef(null)
+  const lastAdded     = useRef(null)
 
-  // ─── Mobile tab (names | groups | bag) ───────────────────────────────────
-  const [mobileTab, setMobileTab]       = useState('names')
-  const [rightPanelOpen, setRightPanelOpen] = useState(true)
+  const searchHighlighted = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return new Set()
+    return new Set(names.filter((n) => n.toLowerCase().startsWith(q)))
+  }, [query, names])
 
-  // ─── Mobile long-press drag state ────────────────────────────────────────
+  const firstMatchName = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return q ? names.find((n) => n.toLowerCase().startsWith(q)) ?? null : null
+  }, [query, names])
+
+  useEffect(() => {
+    if (!firstMatchName) return
+    const t = setTimeout(() => {
+      document.querySelector('[data-search-first="true"]')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }, 40)
+    return () => clearTimeout(t)
+  }, [firstMatchName])
+
+  function handleSmartKey(e) {
+    if (e.key === 'Escape') { setQuery(''); return }
+    if (e.key !== 'Enter') return
+    const trimmed = query.trim()
+    if (!trimmed || names.some((n) => n.toLowerCase() === trimmed.toLowerCase())) return
+    e.preventDefault()
+    if (addName(trimmed)) {
+      lastAdded.current = cleanName(trimmed)
+      setQuery('')
+    } else {
+      setSmartShaking(true)
+      setTimeout(() => setSmartShaking(false), 420)
+    }
+  }
+
+  // Typing anywhere focuses the smart bar; Cmd/Ctrl+Z undoes the last add
+  useEffect(() => {
+    function onKey(e) {
+      const tag = document.activeElement?.tagName
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA'
+      const isUndo = (e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'z'
+      if (isUndo && lastAdded.current && !(inField && document.activeElement.value)) {
+        if (inField && document.activeElement !== smartInputRef.current) return
+        e.preventDefault()
+        const name = lastAdded.current
+        lastAdded.current = null
+        removeName(name)
+        setQuery(name)
+        smartInputRef.current?.focus()
+        return
+      }
+      if (inField || e.ctrlKey || e.metaKey || e.altKey || e.key.length !== 1) return
+      smartInputRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [removeName])
+
+  // ─── Copy / Load ──────────────────────────────────────────────────────────
+  const totalNames = useMemo(
+    () => sheets.reduce((s, sh) => s + (namesBySheet[sh.id]?.length ?? 0), 0),
+    [sheets, namesBySheet],
+  )
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(async () => {
+    if (!totalNames) return
+    try {
+      await navigator.clipboard.writeText(buildFullSnapshot(sheets, namesBySheet, tagsBySheet))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      showToast('⚠️ Clipboard not available')
+    }
+  }, [totalNames, sheets, namesBySheet, tagsBySheet, showToast])
+
+  const [loadText, setLoadText] = useState(null)   // null = modal closed
+
+  const handleLoad = useCallback((rawText) => {
+    if (isSnapshot(rawText)) {
+      const r = restoreFullSnapshot(parseSnapshot(rawText))
+      if (!r) return
+      const parts = [`${r.sheetsRestored} sheet${r.sheetsRestored !== 1 ? 's' : ''}`]
+      if (r.totalNames) parts.push(`${r.totalNames} new name${r.totalNames !== 1 ? 's' : ''}`)
+      if (r.colors) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
+      showToast(`✓ Snapshot — ${parts.join(' · ')}`, null, 3500)
+      return
+    }
+    const added = addNames(rawText.split('\n'))
+    if (added) showToast(`↓ Added ${added} name${added !== 1 ? 's' : ''}`)
+  }, [addNames, restoreFullSnapshot, showToast])
+
+  // Pasting a list adds it; pasting a snapshot opens Load so you can confirm
+  useEffect(() => {
+    if (status !== 'ready') return
+    function handlePaste(e) {
+      if (loadText !== null) return
+      const text = e.clipboardData?.getData('text/plain') ?? ''
+      if (isSnapshot(text)) { e.preventDefault(); setLoadText(text); return }
+      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+      const inInput = document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA'
+      if (!lines.length || (lines.length === 1 && inInput)) return
+      e.preventDefault()
+      const added = addNames(lines)
+      if (added) showToast(`↓ Added ${added} name${added !== 1 ? 's' : ''}`)
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [status, loadText, addNames, showToast])
+
+  // ─── Moving names between sheets (desktop drag + mobile long-press) ──────
   const [mobileDraggingName, setMobileDraggingName] = useState(null)
   const [mobileDragPos, setMobileDragPos]           = useState({ x: 0, y: 0 })
-  const tabBarRef   = useRef(null)
-  const sheetBarRef = useRef(null)
 
   const handleMobileLongPress = useCallback((name, x, y) => {
     setMobileDraggingName(name)
     setMobileDragPos({ x, y })
   }, [])
+  const handleMobileDragCancel = useCallback(() => setMobileDraggingName(null), [])
 
-  const [toast, setToast] = useState('')
-
-  const handleMobileDropToBag = useCallback((name) => {
-    moveToBag(name)
-    setMobileDraggingName(null)
-    setToast(`🎒 ${name} → Bag`)
-    setTimeout(() => setToast(''), 2000)
-  }, [moveToBag])
-
-  const handleMobileDropToGroup = useCallback((groupId, name) => {
-    addToGroup(groupId, name)
-    setMobileDraggingName(null)
-    const gName = groups[groupId]?.name ?? 'group'
-    setToast(`📂 ${name} → ${gName}`)
-    setTimeout(() => setToast(''), 2000)
-  }, [addToGroup, groups])
-
-  const handleMobileSwitchToGroups = useCallback(() => setMobileTab('groups'), [])
-  const handleMobileDragCancel     = useCallback(() => setMobileDraggingName(null), [])
-
-  // ── Cross-sheet drag-to-move ──────────────────────────────────────────────
-  // moveNameToSheet already handles names + tags + groups atomically in Firestore
   const handleMoveNameToSheet = useCallback((name, toSheetId) => {
     setMobileDraggingName(null)
     const result = moveNameToSheet(name, activeSheetId, toSheetId)
-    if (result.ok) {
-      const destSheet = sheets.find((s) => s.id === toSheetId)
-      setToast(`➡️ ${name} moved to ${destSheet?.name ?? 'sheet'}`)
-      setTimeout(() => setToast(''), 2500)
-    } else if (result.reason === 'duplicate') {
-      setToast(`⚠️ ${name} already exists in that sheet`)
-      setTimeout(() => setToast(''), 2500)
-    }
-  }, [moveNameToSheet, activeSheetId, sheets])
+    const dest   = sheets.find((s) => s.id === toSheetId)?.name ?? 'sheet'
+    if (result.ok) showToast(`➡️ ${name} moved to ${dest}`)
+    else if (result.reason === 'duplicate') showToast(`⚠️ ${name} is already in ${dest}`)
+    else if (result.reason === 'full') showToast(`⚠️ ${dest} is full`)
+  }, [moveNameToSheet, activeSheetId, sheets, showToast])
 
-  // ─── Search ───────────────────────────────────────────────────────────────
-  const searchHighlighted = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return new Set()
-    return new Set(displayNames.filter((n) => n.toLowerCase().startsWith(q)))
-  }, [query, displayNames])
-
-  const firstMatchName = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return null
-    return displayNames.find((n) => n.toLowerCase().startsWith(q)) ?? null
-  }, [query, displayNames])
-
-  useEffect(() => {
-    if (!firstMatchName) return
-    const t = setTimeout(() => {
-      const el = document.querySelector('[data-search-first="true"]')
-      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }, 40)
-    return () => clearTimeout(t)
-  }, [firstMatchName])
-
-  useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape' && query) setQuery('') }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [query])
-
-  useEffect(() => {
-    function onGlobal(e) {
-      const tag = document.activeElement?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
-      if (e.ctrlKey || e.metaKey || e.altKey) return
-      if (e.key.length !== 1) return
-      smartInputRef.current?.focus()
-    }
-    document.addEventListener('keydown', onGlobal)
-    return () => document.removeEventListener('keydown', onGlobal)
-  }, [])
-
-  function handleSmartKey(e) {
-    if (e.key !== 'Enter') return
-    const trimmed = query.trim()
-    if (!trimmed) return
-    const exactExists = displayNames.some((n) => n.toLowerCase() === trimmed.toLowerCase())
-    if (!exactExists) {
-      e.preventDefault()
-      const ok = isMemoryMode
-        ? addNamesToMemSheet(activeMemSheetId, [trimmed]).then(c => c > 0) && (setQuery(''), true)
-        : addNameTracked(trimmed)
-      if (isMemoryMode) { setQuery('') }
-      else if (ok) setQuery('')
-      else {
-        setSmartShaking(true)
-        setTimeout(() => setSmartShaking(false), 420)
-      }
-    }
-  }
-
-  // ─── Random Pick 3 ───────────────────────────────────────────────────────
-  const [randomPicks, setRandomPicks] = useState(() => new Set())
-  const pickRandom = useCallback(() => setRandomPicks(pickThree(names.length)), [names.length])
-  useEffect(() => { setRandomPicks(new Set()) }, [names.length])
-  useEffect(() => {
-    if (randomPicks.size === 0) return
-    const t = setTimeout(() => setRandomPicks(new Set()), 5000)
-    return () => clearTimeout(t)
-  }, [randomPicks])
-
-  // ─── Cmd+Z Undo ──────────────────────────────────────────────────────────
-  const lastAdded = useRef(null)
-
-  const addNameTracked = useCallback((raw) => {
-    const toTitleCase = (s) => s.trim().toLowerCase().replace(/(?:^|\s)\S/g, (c) => c.toUpperCase())
-    const formatted = toTitleCase(raw)
-    const ok = addName(raw)
-    if (ok) lastAdded.current = formatted
-    return ok
-  }, [addName])
-
-  useEffect(() => {
-    if (status !== 'unlocked') return
-    function handleUndo(e) {
-      const isMac  = navigator.platform.toUpperCase().includes('MAC')
-      const isUndo = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'z' && !e.shiftKey
-      if (!isUndo) return
-      const inputEl = document.getElementById('smart-input')
-      if (inputEl && inputEl.value.length > 0) return
-      if (!lastAdded.current) return
-      e.preventDefault()
-      const name = lastAdded.current
-      lastAdded.current = null
-      removeName(name)
-      setQuery(name)
-      smartInputRef.current?.focus()
-    }
-    document.addEventListener('keydown', handleUndo)
-    return () => document.removeEventListener('keydown', handleUndo)
-  }, [status, removeName])
-
-  // ─── Copy — ALL sheets, groups, bag, tags ─────────────────────────────────
-  // Uses buildFullSnapshot (v2) which includes every sheet's names + colors.
-  // Falls back to single-sheet v1 only if there is truly just one sheet and
-  // everything lives in it (legacy compat not needed, but kept for safety).
-  const [copied, setCopied] = useState(false)
-  const handleCopy = useCallback(async () => {
-    // Require at least some data across all sheets
-    const totalNames = sheets.reduce((s, sh) => s + (namesBySheet[sh.id]?.length ?? 0), 0)
-    if (!totalNames && !bag.length && !Object.keys(groups).length) return
-    try {
-      const text = buildFullSnapshot(sheets, namesBySheet, tagsBySheet, groups, bag)
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch { /**/ }
-  }, [sheets, namesBySheet, tagsBySheet, groups, bag])
-
-  // ─── Paste / Load / Snapshot ──────────────────────────────────────────────
-  const [restoreMsg, setRestoreMsg] = useState('')
-
-  // Restore a parsed v2 snapshot (all sheets). parseSnapshot() always returns
-  // v2 shape, even for old v1 clipboard content — so this always works.
-  const restoreSnapshot = useCallback((parsed) => {
-    return restoreFullSnapshot(parsed)
-  }, [restoreFullSnapshot])
-
-  function showSnapshotToast(r) {
-    const parts = []
-    if (r.sheetsRestored > 0) parts.push(`${r.sheetsRestored} sheet${r.sheetsRestored !== 1 ? 's' : ''}`)
-    if (r.totalNames    > 0) parts.push(`${r.totalNames} name${r.totalNames !== 1 ? 's' : ''}`)
-    if (r.groups        > 0) parts.push(`${r.groups} group${r.groups !== 1 ? 's' : ''}`)
-    if (r.bag           > 0) parts.push(`${r.bag} in bag`)
-    if (r.colors        > 0) parts.push(`${r.colors} color${r.colors !== 1 ? 's' : ''}`)
-    if (!parts.length) return
-    setRestoreMsg(`✓ Snapshot — ${parts.join(' · ')}`)
-    setTimeout(() => setRestoreMsg(''), 3500)
-  }
-
-  const [showLoadModal, setShowLoadModal] = useState(false)
-
-  const handleLoad = useCallback((rawText) => {
-    if (isSnapshot(rawText)) {
-      showSnapshotToast(restoreSnapshot(parseSnapshot(rawText)))
-    } else {
-      const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean)
-      let added = 0
-      lines.forEach((name) => { if (addName(name)) added++ })
-      if (added > 0) {
-        setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
-        setTimeout(() => setRestoreMsg(''), 2500)
-      }
-    }
-  }, [addName, restoreSnapshot])
-
-  useEffect(() => {
-    if (status !== 'unlocked') return
-    function handlePaste(e) {
-      if (showLoadModal) return
-      const text = e.clipboardData?.getData('text/plain') ?? ''
-      if (isSnapshot(text)) {
-        e.preventDefault()
-        showSnapshotToast(restoreSnapshot(parseSnapshot(text)))
-        return
-      }
-      const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-      if (lines.length <= 1 && document.activeElement?.tagName === 'INPUT') return
-      if (lines.length < 1) return
-      e.preventDefault()
-      let added = 0
-      lines.forEach((name) => { if (addName(name)) added++ })
-      if (added > 0) {
-        setRestoreMsg(`↓ Restored ${added} name${added === 1 ? '' : 's'}`)
-        setTimeout(() => setRestoreMsg(''), 2500)
-      }
-    }
-    document.addEventListener('paste', handlePaste)
-    return () => document.removeEventListener('paste', handlePaste)
-  }, [status, addName, showLoadModal, restoreSnapshot])
-
-  // ─── Settings panel ───────────────────────────────────────────────────────
   const [showSettings, setShowSettings] = useState(false)
 
-  // ─── Firebase not configured (secrets missing from build) ────────────────
+  const handleDeleteAccount = useCallback(
+    (password) => deleteAccount(password, deleteAllData),
+    [deleteAccount, deleteAllData],
+  )
+
+  // ─── Rendering waterfall ──────────────────────────────────────────────────
   if (authState === 'not-configured') {
     return (
-      <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', height: '100vh', background: '#0b0b0f',
-        color: '#f87171', fontFamily: 'Inter, system-ui, sans-serif',
-        gap: '12px', padding: '24px', textAlign: 'center',
-      }}>
+      <FullScreenMessage color="#f87171">
         <span style={{ fontSize: '2.5rem' }}>⚠️</span>
         <strong style={{ fontSize: '1.1rem' }}>Firebase not configured</strong>
         <p style={{ color: '#9ca3af', fontSize: '0.9rem', maxWidth: '360px', margin: 0 }}>
@@ -606,125 +238,79 @@ export default function App() {
           Add the <code style={{ color: '#a855f7' }}>VITE_FIREBASE_*</code> secrets
           to GitHub → Settings → Secrets, then re-run the Actions workflow.
         </p>
-      </div>
+      </FullScreenMessage>
     )
   }
 
-  // ─── Firebase Auth rendering waterfall ───────────────────────────────────
   if (authState === 'loading') {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        height: '100vh', background: '#0b0b0f', color: '#a855f7',
-        fontFamily: 'Inter, system-ui, sans-serif', fontSize: '1.1rem', gap: '10px',
-      }}>
-        <span style={{ display: 'inline-block', animation: 'none', fontSize: '1.4rem' }}>🧠</span>
-        Loading…
-      </div>
-    )
+    return <FullScreenMessage><span style={{ fontSize: '1.4rem' }}>🧠</span>Loading…</FullScreenMessage>
   }
 
   if (authState === 'unauthenticated') {
-    return <FirebaseLoginScreen onSignIn={signIn} onSignUp={signUp} />
+    return <FirebaseLoginScreen onSignIn={signIn} onSignUp={signUp} onResetPassword={resetPassword} />
   }
 
   if (authState === 'unverified') {
-    return <VerifyEmailScreen user={user} onResend={resendVerification} onSignOut={signOutUser} />
+    return (
+      <VerifyEmailScreen
+        user={user}
+        onResend={resendVerification}
+        onCheckVerified={checkVerified}
+        onSignOut={signOutUser}
+      />
+    )
   }
 
-  // ─── App Lock gate (local, device-level) ─────────────────────────────────
-  if (status === 'setup' || status === 'locked') {
+  if (status === 'loading' || status === 'idle') {
+    return <FullScreenMessage><span style={{ fontSize: '1.4rem' }}>🧠</span>Loading your sheets…</FullScreenMessage>
+  }
+
+  if (status === 'error') {
     return (
-      <AuthScreen
-        mode={status}
-        attemptsLeft={attemptsLeft}
-        biometricAvailable={biometricAvailable}
-        bioSetupState={bioSetupState}
-        onSetup={setupPassword}
-        onLogin={login}
-        onBiometric={loginBiometric}
-        onEnrollBiometric={enrollBiometric}
-        onSkipBiometric={skipBioEnroll}
-      />
+      <FullScreenMessage color="#f87171">
+        <span style={{ fontSize: '2rem' }}>📡</span>
+        <strong>Couldn't load your data</strong>
+        <p style={{ color: '#9ca3af', fontSize: '0.9rem', margin: 0 }}>
+          Nothing was changed. Check your connection and try again.
+        </p>
+        <button className={styles.actionBtn} onClick={() => window.location.reload()}>Reload</button>
+        <button className={styles.actionBtn} onClick={signOutUser}>Sign out</button>
+      </FullScreenMessage>
     )
   }
 
   if (phase === 'blasting') {
-    return <BlastAnimation names={capturedNames.current} onComplete={handleBlastCompleteWithMemory} />
-  }
-
-  if (showMemoryPrompt) {
-    return (
-      <MemoryPrompt
-        capturedNames={capturedNames.current}
-        memSheets={memSheets}
-        onSave={handleMemorySave}
-        onDiscard={handleMemoryDiscard}
-        onCreateSheet={createMemorySheet}
-      />
-    )
+    return <BlastAnimation names={cleared?.names ?? []} onComplete={() => setPhase('congrats')} />
   }
 
   if (phase === 'congrats') {
     return <CongratsScreen onClose={handleCongratsClose} />
   }
 
-  // Timer display
-  const mins    = Math.floor(countdown / 60)
-  const secs    = countdown % 60
-  const timeStr = countdown >= 60
-    ? `${mins}:${secs.toString().padStart(2, '0')}`
-    : `${countdown}s`
-
-  const timerClass = phase === 'critical' ? styles.timerCritical : styles.timerExtended
-
-  // Smart bar modes
-  const exactExists  = query.trim() ? displayNames.some((n) => n.toLowerCase() === query.trim().toLowerCase()) : false
-  const isAddMode    = !!query.trim() && !exactExists
-  const isSearchMode = !!query.trim() && searchHighlighted.size > 0
+  const trimmedQuery = query.trim()
+  const exactExists  = trimmedQuery ? names.some((n) => n.toLowerCase() === trimmedQuery.toLowerCase()) : false
+  const isAddMode    = !!trimmedQuery && !exactExists
+  const isSearchMode = !!trimmedQuery && searchHighlighted.size > 0
 
   // ─── Main app ─────────────────────────────────────────────────────────────
   return (
     <div className={styles.app}>
-      {/* ── Header ── */}
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.brandIcon} aria-hidden="true">🧠</span>
           <span className={styles.title}>ClearMyMind</span>
-          {/* Count badge */}
-          {displayNames.length > 0 && (
-            <span
-              className={`${styles.count} ${
-                !isMemoryMode && displayNames.length >= 90 ? styles.countCritical :
-                !isMemoryMode && displayNames.length >= 80 ? styles.countWarn : ''}`}
-              aria-live="polite"
-              style={isMemoryMode ? { color: '#a78bfa', background: 'rgba(139,92,246,0.1)', borderColor: 'rgba(139,92,246,0.25)' } : {}}
-            >
-              {displayNames.length}
-            </span>
-          )}
-          {/* 📚 Memory mode badge */}
-          {isMemoryMode && (
-            <span style={{
-              fontSize: '10px', fontWeight: 700, color: '#a78bfa',
-              background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
-              borderRadius: '99px', padding: '2px 8px', letterSpacing: '0.03em',
-            }}>📚 Memory</span>
-          )}
+          {names.length > 0 && <span className={styles.count} aria-live="polite">{names.length}</span>}
         </div>
 
-        {/* Smart bar */}
+        {/* Smart bar: type to search, Enter to add */}
         <div className={styles.headerInput}>
           <div
-            ref={smartBarRef}
             className={`${styles.smartBar} ${
-              smartShaking  ? styles.smartBarShake  :
-              isAddMode     ? styles.smartBarAdd    :
-              isSearchMode  ? styles.smartBarSearch : ''}`}
+              smartShaking ? styles.smartBarShake  :
+              isAddMode    ? styles.smartBarAdd    :
+              isSearchMode ? styles.smartBarSearch : ''}`}
           >
-            <span className={styles.smartBarIcon} aria-hidden="true">
-              {isAddMode ? '+' : '🔍'}
-            </span>
+            <span className={styles.smartBarIcon} aria-hidden="true">{isAddMode ? '+' : '🔍'}</span>
             <input
               ref={smartInputRef}
               id="smart-input"
@@ -734,6 +320,7 @@ export default function App() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleSmartKey}
+              maxLength={100}
               autoComplete="off"
               autoFocus
               spellCheck={false}
@@ -743,10 +330,6 @@ export default function App() {
               <span className={styles.smartMatchBadge}>
                 {searchHighlighted.size} match{searchHighlighted.size !== 1 ? 'es' : ''}
               </span>
-            )}
-            {/* Memory hint: shown when typed name already exists in a Memory Sheet */}
-            {isAddMode && memoryNameSet.has(query.trim().toLowerCase()) && (
-              <span className={styles.smartMemoryHint} title="Already in Memory">📚</span>
             )}
             {isAddMode && <span className={styles.smartAddHint}>↵ add</span>}
             {query && (
@@ -760,136 +343,44 @@ export default function App() {
           </div>
         </div>
 
-        {/* Action buttons */}
         <div className={styles.actions}>
-          <button
-            id="pick3-btn"
-            className={`${styles.pick3Btn} ${randomPicks.size > 0 ? styles.pick3Active : ''}`}
-            onClick={pickRandom}
-            disabled={names.length < 3}
-            title={names.length < 3 ? 'Need at least 3 names' : 'Pick 3 random'}
-            aria-label="Pick 3 random names"
-          >
-            🎲 {randomPicks.size > 0 ? `${[...randomPicks].sort((a, b) => a - b).join(', ')}` : 'Pick 3'}
-          </button>
-
-          <span className={styles.btnDivider} />
-
           <button
             id="copy-btn"
             className={`${styles.actionBtn} ${copied ? styles.copied : ''}`}
             onClick={handleCopy}
-            disabled={!names.length}
-            aria-label="Copy all names"
+            disabled={!totalNames}
+            title="Copy a snapshot of all sheets (paste it into Load to restore)"
           >
             {copied ? '✓ Copied!' : 'Copy'}
           </button>
           <button
             id="load-btn"
             className={`${styles.actionBtn} ${styles.load}`}
-            onClick={() => setShowLoadModal(true)}
-            aria-label="Load names"
-            title="Paste names to load"
+            onClick={() => setLoadText('')}
+            title="Paste a list of names or a snapshot"
           >Load</button>
 
-          <span className={styles.btnDivider} />
-
           {Object.keys(tags).length > 0 && (
-            <button
-              id="clear-colors-btn"
-              className={`${styles.actionBtn} ${styles.clearColors}`}
-              onClick={clearTags}
-              title="Remove all cell colors"
-              aria-label="Clear all colors"
-            >🎨 Clear Colors</button>
+            <>
+              <span className={styles.btnDivider} />
+              <button
+                id="clear-colors-btn"
+                className={`${styles.actionBtn} ${styles.clearColors}`}
+                onClick={clearTags}
+                title="Remove all colors on this sheet"
+              >🎨 Clear colors</button>
+            </>
           )}
 
           <span className={styles.btnDivider} />
-
-          {phase === 'pending' && (
-            <button id="wait-btn" className={styles.waitBtn} onClick={handleWait}>⏸ Wait</button>
-          )}
-          {(phase === 'counting' || phase === 'critical') && (
-            <span className={`${styles.timerBadge} ${timerClass}`} aria-live="polite">
-              💣 {timeStr}
-            </span>
-          )}
-
-          <button
-            id="noclear-btn"
-            className={`${styles.noClearBtn} ${noClear ? styles.noClearActive : ''}`}
-            onClick={toggleNoClear}
-            title={noClear ? 'NoClear ON — click to re-enable auto-wipe' : 'NoClear OFF — click to disable auto-wipe'}
-          >
-            {noClear ? '✅ NoClear' : '⛔ NoClear'}
-          </button>
-          <button
-            id="nolock-btn"
-            className={`${styles.noLockBtn} ${noLock ? styles.noLockActive : ''}`}
-            onClick={toggleNoLock}
-            title={noLock ? 'NoLock ON — 30 min. Click to re-enable.' : 'NoLock OFF — stay unlocked across tabs'}
-            aria-label={noLock ? 'NoLock active' : 'Enable NoLock'}
-          >
-            {noLock ? '🛡️ NoLock' : '🔓 NoLock'}
-          </button>
-
-          <span className={styles.btnDivider} />
-
-          {/* 📚 → Memory — bulk import (only in session mode) */}
-          {!isMemoryMode && (
-            <ImportToMemory
-              sessionNames={names}
-              bagNames={bag}
-              memSheets={memSheets}
-              onCopy={async (sheetId) => {
-                await addNamesToMemSheet(sheetId, [...names, ...bag])
-              }}
-              onMove={async (sheetId) => {
-                await addNamesToMemSheet(sheetId, [...names, ...bag])
-                clearAll()
-                clearBag()
-                Object.entries(groups).forEach(([gid, g]) => {
-                  const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
-                  const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
-                  if (!anyRemaining) deleteGroup(gid)
-                })
-              }}
-              onCreateAndCopy={async (sheetName) => {
-                const id = await createMemorySheet(sheetName)
-                if (id) await addNamesToMemSheet(id, [...names, ...bag])
-              }}
-              onCreateAndMove={async (sheetName) => {
-                const id = await createMemorySheet(sheetName)
-                if (id) {
-                  await addNamesToMemSheet(id, [...names, ...bag])
-                  clearAll()
-                  clearBag()
-                  Object.entries(groups).forEach(([gid, g]) => {
-                    const movedSet = new Set([...names, ...bag].map(n => n.toLowerCase()))
-                    const anyRemaining = (g.members ?? []).some(m => !movedSet.has(m.toLowerCase()))
-                    if (!anyRemaining) deleteGroup(gid)
-                  })
-                }
-              }}
-            />
-          )}
 
           <button
             id="clear-btn"
             className={`${styles.actionBtn} ${styles.danger}`}
-            onClick={isMemoryMode ? () => clearMemSheet(activeMemSheetId) : clearAll}
-            disabled={!displayNames.length}
-            aria-label={isMemoryMode ? 'Clear memory sheet' : 'Clear current sheet'}
-            title={isMemoryMode ? 'Remove all names from this memory sheet' : 'Clear names from this sheet'}
-          >{isMemoryMode ? 'Clear Memory' : 'Clear All'}</button>
-          <button
-            id="lock-btn"
-            className={`${styles.actionBtn} ${styles.lock}`}
-            onClick={lock}
-            disabled={!isLockEnabled}
-            aria-label={isLockEnabled ? 'Lock app' : 'App Lock not enabled — set a password in Settings'}
-            title={isLockEnabled ? 'Lock' : 'No password set — enable App Lock in Settings first'}
-          >🔒</button>
+            onClick={handleClear}
+            disabled={!names.length}
+            title="Clear every name on this sheet (you can undo)"
+          >{confirmClear ? `Clear ${names.length}?` : 'Clear my mind'}</button>
           <button
             id="settings-btn"
             className={`${styles.actionBtn} ${styles.settingsBtn}`}
@@ -897,232 +388,85 @@ export default function App() {
             aria-label="Settings"
             title="Settings"
           >⚙️</button>
-
-          {/* 📚 Tab toggle — shows/hides memory sheet tabs in SheetBar */}
-          <button
-            id="memory-tabs-toggle-btn"
-            className={`${styles.actionBtn} ${styles.memoryBtn} ${showMemTabs ? styles.memoryBtnActive : ''} ${activeMemSheetId ? styles.memoryBtnActive : ''}`}
-            onClick={() => {
-              const next = !showMemTabs
-              setShowMemTabs(next)
-              if (!next && activeMemSheetId) setActiveMemSheetId(null)
-            }}
-            aria-label="Toggle memory sheet tabs"
-            aria-pressed={showMemTabs}
-            title={showMemTabs ? 'Hide Memory Tabs' : `Show Memory Tabs (${Object.keys(memSheets).length})`}
-          >
-            📚 Tabs{Object.keys(memSheets).length > 0 && <span style={{ fontSize: '9px', fontWeight: 700, marginLeft: 2, opacity: 0.7 }}>{Object.keys(memSheets).length}</span>}
-          </button>
-
-          {/* 📚 Memory Panel button */}
-          <button
-            id="memory-btn"
-            className={`${styles.actionBtn} ${styles.memoryBtn} ${Object.keys(memSheets).length > 0 ? styles.memoryBtnActive : ''}`}
-            onClick={() => setShowMemory(true)}
-            aria-label="Memory Sheets Panel"
-            title={`Memory Sheets Panel${Object.keys(memSheets).length > 0 ? ` — ${Object.keys(memSheets).length} sheet(s)` : ''}`}
-          >📚</button>
         </div>
       </header>
 
-
-      {/* ── Content row: Grid + right panel ── */}
-      <div className={styles.contentRow}>
-        <section
-          className={`${styles.gridSection} ${mobileTab !== 'names' ? styles.mobileHidden : ''}`}
-          aria-label="Name list"
-        >
+      <section className={styles.gridSection} aria-label="Name list">
+        {names.length === 0 && !query ? (
+          <div className={styles.emptyState}>
+            <p className={styles.emptyTitle}>Your mind is clear.</p>
+            <p className={styles.emptyHint}>
+              Start typing anywhere and press <kbd>Enter</kbd> to get a name out of your head.
+              Paste a list to add many at once.
+            </p>
+          </div>
+        ) : (
           <NameGrid
-            names={displayNames}
-            tags={displayTags}
-            randomPicks={isMemoryMode ? new Set() : randomPicks}
-            highlightedNames={groupHighlightedNames}
+            names={names}
+            tags={tags}
             searchHighlighted={searchHighlighted}
             firstMatchName={firstMatchName}
-            memoryNameSet={isMemoryMode ? new Set() : memoryNameSet}
-            memoryIconMap={isMemoryMode ? new Map() : memoryIconMap}
-            onRemove={handleGridRemove}
-            onEdit={handleGridEdit}
+            onRemove={removeName}
+            onEdit={editName}
             onTagSet={setTag}
             onMobileLongPress={handleMobileLongPress}
           />
-        </section>
+        )}
+      </section>
 
-        {/* Right sidebar — collapsible with slide animation */}
-        <div className={styles.rightPanelWrapper}>
-          {/* Toggle tab — always visible on the panel's left edge */}
-          <button
-            className={styles.panelToggleTab}
-            onClick={() => setRightPanelOpen(o => !o)}
-            title={rightPanelOpen ? 'Collapse panel' : 'Expand panel'}
-            aria-label={rightPanelOpen ? 'Collapse Groups & Bag' : 'Expand Groups & Bag'}
-          >
-            {rightPanelOpen ? '›' : '‹'}
-          </button>
-
-          <div className={`${styles.rightPanel} ${rightPanelOpen ? '' : styles.collapsed} ${mobileTab !== 'names' ? styles.mobileVisible : ''}`}>
-            {(mobileTab === 'names' || mobileTab === 'groups') && (
-              <Groups
-                groups={sheetGroups}
-                activeGroupId={activeGroupId}
-                onSelectGroup={setActiveGroupId}
-                onCreateGroup={createGroup}
-                onRenameGroup={renameGroup}
-                onDeleteGroup={deleteGroup}
-                onAddToGroup={addToGroup}
-                onRemoveFromGroup={removeFromGroup}
-                draggingName={mobileDraggingName}
-              />
-            )}
-            {(mobileTab === 'names' || mobileTab === 'bag') && (
-              <Bag
-                bag={bag}
-                onDrop={moveToBag}
-                onRestore={restoreFromBag}
-                onRemove={removeFromBag}
-                onClear={clearBag}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Paste-restore toast ── */}
-      {restoreMsg && (
-        <div className={styles.toast} role="status" aria-live="polite">{restoreMsg}</div>
-      )}
-
-      {/* ── Mobile drop toast ── */}
       {toast && (
-        <div className={styles.toast} role="status" aria-live="polite">{toast}</div>
-      )}
-
-      {/* ── Write-error toast (Firestore failure) ── */}
-      {writeError && (
-        <div
-          className={styles.toast}
-          style={{ background: 'rgba(220,38,38,0.96)', color: '#fff', display: 'flex', alignItems: 'center', gap: '10px' }}
-          role="alert"
-          aria-live="assertive"
-        >
-          <span style={{ flex: 1 }}>{writeError}</span>
-          <button
-            onClick={clearWriteError}
-            style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.1rem', lineHeight: 1 }}
-            aria-label="Dismiss error"
-          >×</button>
+        <div className={`${styles.toast} ${toast.action ? styles.toastInteractive : ''}`} role="status" aria-live="polite">
+          <span>{toast.text}</span>
+          {toast.action && (
+            <button
+              className={styles.toastAction}
+              onClick={() => { const run = toast.action.run; setToast(null); run() }}
+            >{toast.action.label}</button>
+          )}
         </div>
       )}
 
-      {/* ── Load modal ── */}
-      {showLoadModal && (
-        <LoadModal
-          onLoad={handleLoad}
-          onClose={() => setShowLoadModal(false)}
-        />
+      {error && (
+        <div className={`${styles.toast} ${styles.toastError}`} role="alert" aria-live="assertive">
+          <span>{error}</span>
+          <button className={styles.toastAction} onClick={clearError} aria-label="Dismiss error">×</button>
+        </div>
       )}
 
-      {/* ── Settings panel ── */}
+      {loadText !== null && (
+        <LoadModal initialText={loadText} onLoad={handleLoad} onClose={() => setLoadText(null)} />
+      )}
+
       {showSettings && (
         <SettingsPanel
           user={user}
-          isLockEnabled={isLockEnabled}
           onSignOut={signOutUser}
-          onDeleteAccount={deleteAccount}
-          onResetData={clearEverything}
-          onResetMemory={resetMemory}
-          onEnableLock={enableLock}
-          onDisableLock={disableLock}
-          onChangePassword={changePassword}
+          onDeleteData={deleteAllData}
+          onDeleteAccount={handleDeleteAccount}
           onClose={() => setShowSettings(false)}
         />
       )}
 
-      {/* ── Memory Panel ── */}
-      {showMemory && (
-        <MemoryPanel
-          memSheets={memSheets}
-          trash={trash}
-          trashCount={trashCount}
-          onCreateSheet={createMemorySheet}
-          onRenameSheet={renameMemorySheet}
-          onDeleteSheet={deleteMemSheet}
-          onClearSheet={clearMemSheet}
-          onAddNames={addNamesToMemSheet}
-          onRemoveName={removeNameFromMemSheet}
-          onEditName={editNameInMemSheet}
-          onRestoreVersion={restorePreviousVersion}
-          onRestoreTrash={restoreSheet}
-          onPermanentDelete={permanentDelete}
-          onExportJSON={exportAsJSON}
-          onExportCSV={exportAsCSV}
-          onSetIcon={setMemSheetIcon}
-          onClose={() => setShowMemory(false)}
-        />
-      )}
-
-      {/* ── Sheet bar — bottom strip ── */}
-      <div className={styles.sheetBarWrap} ref={sheetBarRef}>
+      <div className={styles.sheetBarWrap}>
         <SheetBar
           sheets={sheets}
           activeSheetId={activeSheetId}
-          onSwitch={switchSheet}
+          namesBySheet={namesBySheet}
+          onSwitch={(id) => { setConfirmClear(false); switchSheet(id) }}
           onAdd={addSheet}
           onRename={renameSheet}
           onDelete={deleteSheet}
           onMoveName={handleMoveNameToSheet}
-          memSheets={memSheets}
-          activeMemSheetId={activeMemSheetId}
-          showMemTabs={showMemTabs}
-          onSwitchMemSheet={setActiveMemSheetId}
-          onRenameMemSheet={renameMemorySheet}
-          onDeleteMemSheet={handleDeleteMemTab}
         />
       </div>
 
-
-      {/* ── Mobile bottom tab bar ── */}
-      <nav className={styles.mobileTabBar} aria-label="Navigation" ref={tabBarRef}>
-        <button
-          className={`${styles.mobileTab} ${mobileTab === 'names' ? styles.mobileTabActive : ''}`}
-          onClick={() => setMobileTab('names')}
-          aria-label="Names"
-        >
-          <span className={styles.mobileTabIcon}>🧠</span>
-          <span>Names{names.length > 0 ? ` (${names.length})` : ''}</span>
-        </button>
-        <button
-          className={`${styles.mobileTab} ${mobileTab === 'groups' ? styles.mobileTabActive : ''}`}
-          onClick={() => setMobileTab('groups')}
-          aria-label="Groups"
-        >
-          <span className={styles.mobileTabIcon}>📂</span>
-          <span>Groups{Object.keys(groups).length > 0 ? ` (${Object.keys(groups).length})` : ''}</span>
-        </button>
-        <button
-          className={`${styles.mobileTab} ${mobileTab === 'bag' ? styles.mobileTabActive : ''}`}
-          onClick={() => setMobileTab('bag')}
-          aria-label="Bag"
-        >
-          <span className={styles.mobileTabIcon}>🎒</span>
-          <span>Bag{bag.length > 0 ? ` (${bag.length})` : ''}</span>
-        </button>
-      </nav>
-
-      {/* ── Mobile long-press drag overlay ── */}
       <MobileDragOverlay
         draggingName={mobileDraggingName}
         initialPos={mobileDragPos}
-        groups={groups}
         sheets={sheets}
         activeSheetId={activeSheetId}
-        onDropToBag={handleMobileDropToBag}
-        onDropToGroup={handleMobileDropToGroup}
         onMoveNameToSheet={handleMoveNameToSheet}
         onCancel={handleMobileDragCancel}
-        onSwitchToGroups={handleMobileSwitchToGroups}
-        tabBarRef={tabBarRef}
-        sheetBarRef={sheetBarRef}
       />
     </div>
   )

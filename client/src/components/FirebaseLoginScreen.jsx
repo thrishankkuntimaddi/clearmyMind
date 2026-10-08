@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react'
 import styles from './FirebaseLoginScreen.module.css'
 
-export default function FirebaseLoginScreen({ onSignIn, onSignUp }) {
-  const [tab, setTab]           = useState('signin') // 'signin' | 'signup'
+const MIN_PASSWORD = 8
+
+export default function FirebaseLoginScreen({ onSignIn, onSignUp, onResetPassword }) {
+  const [tab, setTab]           = useState('signin') // 'signin' | 'signup' | 'reset'
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm]   = useState('')
@@ -24,26 +26,30 @@ export default function FirebaseLoginScreen({ onSignIn, onSignUp }) {
     e.preventDefault()
     if (loading) return
     const em  = email.trim()
-    const pwd = password.trim()
-    if (!em || !pwd) { setError('Please fill in all fields.'); return }
+    // Passwords are used exactly as typed — never trimmed.
+    const pwd = password
+    if (!em || (tab !== 'reset' && !pwd)) { setError('Please fill in all fields.'); return }
 
     if (tab === 'signup') {
-      if (pwd.length < 6)          { setError('Password must be at least 6 characters.'); return }
-      if (pwd !== confirm.trim())  { setError('Passwords do not match.'); return }
+      if (pwd.length < MIN_PASSWORD) { setError(`Password must be at least ${MIN_PASSWORD} characters.`); return }
+      if (pwd !== confirm)           { setError('Passwords do not match.'); return }
     }
 
     setLoading(true)
     setError('')
     setSuccess('')
 
-    const result = tab === 'signin'
-      ? await onSignIn(em, pwd)
-      : await onSignUp(em, pwd)
+    const result = tab === 'signin' ? await onSignIn(em, pwd)
+      : tab === 'signup'            ? await onSignUp(em, pwd)
+      :                               await onResetPassword(em)
 
     setLoading(false)
 
     if (!result.success) {
       setError(result.error ?? 'Something went wrong.')
+    } else if (tab === 'reset') {
+      setSuccess('If an account exists for that email, a reset link is on its way.')
+      setTab('signin')
     } else if (tab === 'signup') {
       setSuccess('Account created! Check your email to verify, then sign in.')
       setTab('signin')
@@ -99,19 +105,19 @@ export default function FirebaseLoginScreen({ onSignIn, onSignUp }) {
             />
           </div>
 
-          <div className={styles.field}>
+          {tab !== 'reset' && <div className={styles.field}>
             <label className={styles.label} htmlFor="fb-password">Password</label>
             <input
               id="fb-password"
               type="password"
               className={styles.input}
-              placeholder={tab === 'signup' ? 'At least 6 characters' : 'Your password'}
+              placeholder={tab === 'signup' ? `At least ${MIN_PASSWORD} characters` : 'Your password'}
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError('') }}
               autoComplete={tab === 'signup' ? 'new-password' : 'current-password'}
               disabled={loading}
             />
-          </div>
+          </div>}
 
           {tab === 'signup' && (
             <div className={styles.field}>
@@ -133,13 +139,21 @@ export default function FirebaseLoginScreen({ onSignIn, onSignUp }) {
             id="fb-submit"
             type="submit"
             className={styles.submitBtn}
-            disabled={loading || !email.trim() || !password.trim()}
+            disabled={loading || !email.trim() || (tab !== 'reset' && !password)}
           >
             {loading
               ? <span className={styles.spinner}>⟳</span>
-              : tab === 'signin' ? 'Sign in' : 'Create account'}
+              : tab === 'signin' ? 'Sign in' : tab === 'signup' ? 'Create account' : 'Send reset link'}
           </button>
         </form>
+
+        {tab === 'signin' && (
+          <p className={styles.footnote}>
+            <button type="button" className={styles.switchLink} onClick={() => switchTab('reset')}>
+              Forgot password?
+            </button>
+          </p>
+        )}
 
         <p className={styles.footnote}>
           {tab === 'signin'

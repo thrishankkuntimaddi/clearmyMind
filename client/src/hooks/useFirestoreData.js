@@ -1,785 +1,433 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { patchUserData, replaceUserDoc, subscribeToUserData, fetchAllUserDataWithErrors, USER_DOCS } from '../lib/db.js'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import {
+  loadUserData, writeFields, subscribeToUserData,
+  loadLegacyData, deleteAllUserData, REMOVE,
+} from '../lib/db.js'
+import {
+  cleanName, cleanSheetName, isValidSheetId, sortNames, mergeNames,
+  canTag, MAX_SHEETS, MAX_NAMES_PER_SHEET, TAG_KEYS,
+} from '../utils/validate.js'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-export function toTitleCase(str) {
-  return str.trim().toLowerCase().replace(/(?:^|\s)\S/g, (ch) => ch.toUpperCase())
-}
-
-function sortNames(arr) {
-  return [...arr].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-}
+const ACTIVE_KEY  = 'cmm_active_sheet'   // device-local: which sheet is open
+const SAVE_ERROR  = '⚠️ Not saved — check your connection and try again.'
+const LOAD_ERROR  = '⚠️ Could not load your data. Check your connection and reload.'
+const EMPTY_TAGS  = Object.freeze({})
 
 function defaultSheets() {
   return [{ id: 'sheet-1', name: 'Sheet 1' }]
 }
 
+function initialState() {
+  return { sheets: defaultSheets(), activeSheetId: 'sheet-1', namesBySheet: {}, tagsBySheet: {} }
+}
+
+// ─── Defensive readers: accept only well-formed data from Firestore ──────────
+function stripMeta(data) {
+  if (!data) return {}
+  const { updatedAt: _u, ...rest } = data
+  return rest
+}
+
+function readSheets(data) {
+  const list = Array.isArray(data?.sheets)
+    ? data.sheets.filter((s) => s && isValidSheetId(s.id) && typeof s.name === 'string')
+    : []
+  return list.length ? list : defaultSheets()
+}
+
+function readNames(data) {
+  const out = {}
+  for (const [sid, list] of Object.entries(stripMeta(data))) {
+    if (isValidSheetId(sid) && Array.isArray(list)) out[sid] = list.filter((n) => typeof n === 'string')
+  }
+  return out
+}
+
+function readTags(data) {
+  const out = {}
+  for (const [sid, map] of Object.entries(stripMeta(data))) {
+    if (!isValidSheetId(sid) || !map || typeof map !== 'object') continue
+    out[sid] = Object.fromEntries(Object.entries(map).filter(([n, c]) => canTag(n) && TAG_KEYS.includes(c)))
+  }
+  return out
+}
+
+function readActive() {
+  try { return localStorage.getItem(ACTIVE_KEY) } catch { return null }
+}
+function saveActive(id) {
+  try { localStorage.setItem(ACTIVE_KEY, id) } catch { /* storage unavailable */ }
+}
+export function clearLocalPrefs() {
+  try { localStorage.removeItem(ACTIVE_KEY) } catch { /* storage unavailable */ }
+}
+
+function uniqueSheetName(base, sheets) {
+  const taken = new Set(sheets.map((s) => s.name.toLowerCase()))
+  const root  = cleanSheetName(base) || 'Sheet'
+  let name = root
+  for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${root} (${i})`
+  return name
+}
+
+// ─── One-time migration from v1 (Bag + Memory Sheets → regular sheets) ───────
+// Legacy documents are left untouched, so nothing is lost if this is rolled back.
+async function migrateLegacy(uid, sheets, namesBySheet) {
+  const { bag, memorySheets } = await loadLegacyData(uid)
+  const nextSheets = [...sheets]
+  const nextNames  = { ...namesBySheet }
+  const added      = {}
+  const stamp      = Date.now().toString(36)
+
+  const addSheet = (base, list, i) => {
+    if (nextSheets.length >= MAX_SHEETS) return
+    const merged = mergeNames([], list)
+    if (!merged.length) return
+    const id = `sheet-m${stamp}${i}`
+    nextSheets.push({ id, name: uniqueSheetName(base, nextSheets) })
+    nextNames[id] = merged
+    added[id]     = merged
+  }
+  addSheet('Bag', bag, 0)
+  memorySheets.forEach((m, i) => addSheet(m.name || 'Memory', m.names, i + 1))
+
+  if (Object.keys(added).length && !(await writeFields(uid, 'names', added))) {
+    throw new Error('migration: names write failed')
+  }
+  if (!(await writeFields(uid, 'sheets', { sheets: nextSheets, schema: 2 }))) {
+    throw new Error('migration: sheets write failed')
+  }
+  return { sheets: nextSheets, namesBySheet: nextNames }
+}
+
 // ─── useFirestoreData ─────────────────────────────────────────────────────────
-// Single hook that owns ALL app data. Uses refs for synchronous reads inside
-// callbacks so all public functions return meaningful values without async reads.
+// Owns all app data. State lives in a ref (S) so callbacks can read the latest
+// values synchronously; commit() mirrors it into React state for rendering.
 export function useFirestoreData(uid) {
-  // Write-error toast — set when a Firestore write silently fails
-  const [writeError, _setWriteError] = useState(null)
-  // Connection-error state — set when all fetches AND subscription fail at boot
-  const [fetchFailed, _setFetchFailed] = useState(false)
-  const clearWriteError = useCallback(() => _setWriteError(null), [])
+  const [status, setStatus] = useState('idle')   // idle | loading | ready | error
+  const [error, setError]   = useState(null)
+  const [state, setState]   = useState(initialState)
+  const S        = useRef(state)
+  const uidRef   = useRef(uid)
+  const readyRef = useRef(false)
 
-  // ── State + shadow refs (refs let callbacks read current values synchronously)
-  const [sheets, _setSheets]               = useState(defaultSheets())
-  const sheetsRef                           = useRef(defaultSheets())
-  const [activeSheetId, _setActiveSheetId] = useState('sheet-1')
-  const activeSheetIdRef                    = useRef('sheet-1')
-  const [namesBySheet, _setNamesBySheet]   = useState({})
-  const namesBySheetRef                     = useRef({})
-  const [tagsBySheet, _setTagsBySheet]     = useState({})
-  const tagsBySheetRef                      = useRef({})
-  const [groups, _setGroups]               = useState({})
-  const groupsRef                           = useRef({})
-  const [bag, _setBag]                     = useState([])
-  const bagRef                              = useRef([])
-  const [noClear, _setNoClear]             = useState(true)
+  const clearError = useCallback(() => setError(null), [])
 
-  // Guard: while we are seeding Firestore for a brand-new user, ignore the
-  // subscription echoes of our own writes — they would wipe state immediately.
-  const initCompleteRef = useRef(false)
+  const commit = useCallback((patch) => {
+    S.current = { ...S.current, ...patch }
+    setState(S.current)
+  }, [])
 
-  // ── Synced setters — keep ref + state in lockstep ─────────────────────────
-  const setSheets         = (v) => { sheetsRef.current        = v; _setSheets(v) }
-  const setActiveSheetId  = (v) => { activeSheetIdRef.current = v; _setActiveSheetId(v) }
-  const setNamesBySheet   = (v) => { namesBySheetRef.current  = v; _setNamesBySheet(v) }
-  const setTagsBySheet    = (v) => { tagsBySheetRef.current   = v; _setTagsBySheet(v) }
-  const setGroups         = (v) => { groupsRef.current        = v; _setGroups(v) }
-  const setBag            = (v) => { bagRef.current           = v; _setBag(v) }
+  // Writes are refused until the initial server read succeeded — this is what
+  // prevents a flaky connection from overwriting real data with empty defaults.
+  const save = useCallback(async (docName, fields) => {
+    if (!uidRef.current || !readyRef.current) return false
+    const ok = await writeFields(uidRef.current, docName, fields)
+    if (!ok) setError(SAVE_ERROR)
+    return ok
+  }, [])
 
-  // ── patchRef: merge-write for partial updates (names, tags, bag, etc.)
-  const patchRef = useRef(null)
-  // ── replaceRef: full-replace write (groups) — merge:true would resurrect deleted keys
-  const replaceRef = useRef(null)
+  // ─── Boot: reset → load → migrate → subscribe ──────────────────────────────
   useEffect(() => {
-    if (uid) {
-      patchRef.current = async (docName, partial) => {
-        const ok = await patchUserData(uid, docName, partial)
-        if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
-      }
-      replaceRef.current = async (docName, data) => {
-        const ok = await replaceUserDoc(uid, docName, data)
-        if (!ok) _setWriteError('⚠️ Data not saved — check your connection or app permissions.')
-      }
-    } else {
-      patchRef.current   = () => {}
-      replaceRef.current = () => {}
-    }
-  }, [uid])
+    // Always start from a blank slate so one account's data can never be
+    // shown to (or written into) the next account signed in on this device.
+    uidRef.current   = uid
+    readyRef.current = false
+    commit(initialState())
+    setError(null)
+    if (!uid) { setStatus('idle'); return }
+    setStatus('loading')
 
-  // ─── Hydrate state from fetched Firestore data ────────────────────────────
-  // Accepts a multi-doc data object (keyed by doc name) and applies whatever
-  // is present. Missing/null docs are skipped — defaults remain in place.
-  function hydrateFromFetchedData(data) {
-    if (data.sheets?.sheets?.length) {
-      const s  = data.sheets.sheets
-      const id = data.sheets.activeSheetId || s[0]?.id || 'sheet-1'
-      setSheets(s)
-      setActiveSheetId(id)
-    }
-    if (data.names) {
-      const { updatedAt: _u, ...rest } = data.names
-      if (Object.keys(rest).length) setNamesBySheet(rest)
-    }
-    if (data.tags) {
-      const { updatedAt: _u, ...rest } = data.tags
-      if (Object.keys(rest).length) setTagsBySheet(rest)
-    }
-    if (data.groups?.groups && Object.keys(data.groups.groups).length) {
-      setGroups(data.groups.groups)
-    }
-    if (data.bag?.bag?.length) {
-      setBag(data.bag.bag)
-    }
-    if (typeof data.profile?.noclear === 'boolean') {
-      _setNoClear(data.profile.noclear)
-    }
-  }
-
-  // ─── Handle remote update from onSnapshot ────────────────────────────────
-  // Called for every server-confirmed snapshot (hasPendingWrites=false).
-  // The server document is authoritative — ALWAYS replace state, never merge.
-  // DO NOT guard with length checks — that silently drops clears/empty updates.
-  function handleRemoteUpdate(docName, data) {
-    // Block subscription echoes until we have finished our own init writes.
-    // This prevents our seed writes from bouncing back and wiping state.
-    if (!initCompleteRef.current) return
-    if (!data) return
-
-    switch (docName) {
-      case 'sheets': {
-        const s       = data.sheets      ?? sheetsRef.current
-        const activeId = data.activeSheetId ?? activeSheetIdRef.current
-        setSheets(s)
-        setActiveSheetId(activeId)
-        break
-      }
-      case 'names': {
-        const { updatedAt: _u, ...rest } = data
-        setNamesBySheet(rest)
-        break
-      }
-      case 'tags': {
-        const { updatedAt: _u, ...rest } = data
-        setTagsBySheet(rest)
-        break
-      }
-      case 'groups':
-        setGroups(data.groups ?? {})
-        break
-      case 'bag':
-        setBag(data.bag ?? [])
-        break
-      case 'profile':
-        if (typeof data.noclear === 'boolean') _setNoClear(data.noclear)
-        break
-    }
-  }
-
-  // ─── Initial load + one-time seed + real-time subscription ───────────────
-  //
-  // FLOW:
-  //   1. Open subscription immediately → queues early snapshots (IndexedDB cache)
-  //   2. fetchAllUserData → network read (fast if auth token ready)
-  //      If network fails (PERMISSION_DENIED mid-refresh): tries IndexedDB
-  //      If BOTH fail: results[docName] = null  AND  _fetchErrors[docName] = true
-  //   3. Decide: newUser | existingUser | unknownUser (all errored, wait for sub)
-  //
-  // CRITICAL RACE: on a second device with empty IndexedDB, if auth token is
-  // mid-refresh ALL fetches fail → all docs null → falsely treated as new user
-  // → seed written → DATA WIPED. Fix: track which docs errored vs. don't exist,
-  // and if ALL errored, wait for the subscription to deliver real data instead.
-  useEffect(() => {
-    if (!uid) return
     let cancelled = false
-    initCompleteRef.current = false
+    let unsub     = () => {}
 
-    // Queue for snapshots that arrive before init finishes
-    const pendingUpdates = {}   // { docName: data }
-
-    // Pre-open the subscription immediately so we catch the very first
-    // local-cache snapshot. Updates received before initCompleteRef is true
-    // are queued; afterwards they pass straight through.
-    const unsub = subscribeToUserData(uid, (docName, data) => {
-      if (!initCompleteRef.current) {
-        pendingUpdates[docName] = data
-      } else {
-        handleRemoteUpdate(docName, data)
-      }
-    })
-
-    async function init() {
-      // 1. Fetch current Firestore state (tracks per-doc errors internally)
-      const { data, fetchErrors } = await fetchAllUserDataWithErrors(uid)
-      if (cancelled) return
-
-      const allFetchesFailed = USER_DOCS.every((k) => fetchErrors[k])
-      const hasFetchedAnyData = USER_DOCS.some(
-        (k) => !fetchErrors[k] && data[k] !== null && data[k] !== undefined
-      )
-      const hasQueuedAnyData = Object.keys(pendingUpdates).length > 0
-
-      if (allFetchesFailed && !hasQueuedAnyData) {
-        // ALL network + cache reads failed AND subscription has delivered nothing yet.
-        // This happens on a pristine second device when auth token is mid-refresh,
-        // OR when Firestore security rules are misconfigured in production.
-        // Wait up to 5 seconds for the subscription to deliver real Firestore data.
-        await new Promise((resolve) => {
-          const deadline = setTimeout(resolve, 5000)
-          function checkQueue() {
-            if (Object.keys(pendingUpdates).length > 0 || cancelled) {
-              clearTimeout(deadline)
-              resolve()
-            } else {
-              setTimeout(checkQueue, 100)
-            }
-          }
-          checkQueue()
-        })
-        if (cancelled) return
-      }
-
-      // Re-evaluate after potential wait
-      const finalHasQueued = Object.keys(pendingUpdates).length > 0
-
-      // ── CRITICAL SAFETY GUARD ────────────────────────────────────────────────
-      // Only treat this as a brand-new user if:
-      //  a) ALL fetches succeeded (no errors) — meaning Firestore is reachable, AND
-      //  b) every doc genuinely returned null (doc doesn't exist)
-      //  c) AND the subscription has also delivered nothing
-      //
-      // If ALL fetches errored (permission-denied / network failure), we MUST NOT
-      // seed defaults — we'd be overwriting real data with blank state.
-      // In that case, surface a connection error and abort init. The subscription
-      // will eventually deliver data when auth recovers (or user refreshes).
-      // ─────────────────────────────────────────────────────────────────────────
-      const allFetchesErrored = USER_DOCS.every((k) => fetchErrors[k])
-      if (allFetchesErrored && !finalHasQueued) {
-        console.error('[CMM] ALL Firestore fetches failed and subscription silent — aborting init to prevent data wipe')
-        _setWriteError('⚠️ Connection error — could not load your data. Check your internet and reload.')
-        // Do NOT seed. Leave initCompleteRef.current = false so subscription updates
-        // will be queued and applied if/when the connection recovers.
+    ;(async () => {
+      let data
+      try {
+        data = await loadUserData(uid)
+      } catch (e) {
+        console.error('[ClearMyMind] load failed:', e.code)
+        if (!cancelled) { setStatus('error'); setError(LOAD_ERROR) }
         return
       }
+      if (cancelled) return
 
-      const isNewUser = !hasFetchedAnyData && !finalHasQueued && !allFetchesErrored
+      let sheets       = readSheets(data.sheets)
+      let namesBySheet = readNames(data.names)
+      const tagsBySheet = readTags(data.tags)
 
-      if (isNewUser) {
-        // Truly brand-new user — ALL docs returned null without any fetch error.
-        // Seed Firestore with default sheet + profile marker.
-        // Profile doc = reliable "user exists" signal for future logins on new devices.
-        console.warn('[CMM] SEEDING NEW USER — this should only happen ONCE per account')
-        const defaultSheetList = defaultSheets()
-        const defaultActiveId  = defaultSheetList[0].id
-        await patchUserData(uid, 'sheets', {
-          sheets: defaultSheetList,
-          activeSheetId: defaultActiveId,
-        })
-        await patchUserData(uid, 'profile', { noclear: true, createdAt: Date.now() })
+      if ((data.sheets?.schema ?? 0) < 2) {
+        try {
+          ;({ sheets, namesBySheet } = await migrateLegacy(uid, sheets, namesBySheet))
+        } catch (e) {
+          // Non-fatal: the app works without it and it retries on next load.
+          console.error('[ClearMyMind] migration failed:', e.message ?? e.code)
+        }
         if (cancelled) return
-        setSheets(defaultSheetList)
-        setActiveSheetId(defaultActiveId)
-
-      } else {
-        // Existing user — hydrate from fetched data first, then overlay subscription queue
-        if (hasFetchedAnyData) {
-          hydrateFromFetchedData(data)
-        }
-
-        // Flush queued subscription snapshots (these may have newer data than the fetch)
-        if (finalHasQueued) {
-          // Unlock first so handleRemoteUpdate pass-through works
-          initCompleteRef.current = true
-          Object.keys(pendingUpdates).forEach((docName) =>
-            handleRemoteUpdate(docName, pendingUpdates[docName])
-          )
-        }
       }
 
-      if (cancelled) return
-      // Clear any prior fetch-failed error now that init succeeded
-      _setFetchFailed(false)
-      initCompleteRef.current = true  // ensure always set regardless of branch
-    }
+      const preferred = [readActive(), data.sheets?.activeSheetId]
+      const activeSheetId = preferred.find((id) => sheets.some((s) => s.id === id)) ?? sheets[0].id
+      commit({ sheets, activeSheetId, namesBySheet, tagsBySheet })
+      readyRef.current = true
+      setStatus('ready')
 
-    init().catch(console.error)
+      unsub = subscribeToUserData(uid, (docName, d) => {
+        if (docName === 'sheets') {
+          const list   = readSheets(d)
+          const active = list.some((s) => s.id === S.current.activeSheetId) ? S.current.activeSheetId : list[0].id
+          commit({ sheets: list, activeSheetId: active })
+        } else if (docName === 'names') {
+          commit({ namesBySheet: readNames(d) })
+        } else if (docName === 'tags') {
+          commit({ tagsBySheet: readTags(d) })
+        }
+      })
+    })()
 
     return () => {
-      cancelled = true
-      initCompleteRef.current = false
-      unsub?.()
+      cancelled        = true
+      readyRef.current = false
+      unsub()
     }
-  }, [uid]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [uid, commit])
+
+  // ─── Low-level per-sheet setters ───────────────────────────────────────────
+  const putNames = useCallback((sid, list) => {
+    commit({ namesBySheet: { ...S.current.namesBySheet, [sid]: list } })
+    save('names', { [sid]: list })
+  }, [commit, save])
+
+  const putTags = useCallback((sid, map) => {
+    commit({ tagsBySheet: { ...S.current.tagsBySheet, [sid]: map } })
+    save('tags', { [sid]: map })
+  }, [commit, save])
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // NAMES API
-  // ════════════════════════════════════════════════════════════════════════════
-  const names = sortNames(namesBySheet[activeSheetId] ?? [])
-
-  const addName = useCallback((raw) => {
-    const formatted = toTitleCase(raw)
-    if (!formatted) return false
-    const sid     = activeSheetIdRef.current
-    const current = namesBySheetRef.current[sid] ?? []
-    const lower   = formatted.toLowerCase()
-    if (current.some((n) => n.toLowerCase() === lower)) return false
-    const next     = sortNames([...current, formatted])
-    const newState = { ...namesBySheetRef.current, [sid]: next }
-    setNamesBySheet(newState)
-    patchRef.current('names', { [sid]: next })
-    return true
-  }, [])
-
-  const editName = useCallback((oldName, rawNew) => {
-    const newName = toTitleCase(rawNew)
-    if (!newName || newName.toLowerCase() === oldName.toLowerCase()) return
-    const sid     = activeSheetIdRef.current
-    const current = namesBySheetRef.current[sid] ?? []
-    if (current.some((n) => n !== oldName && n.toLowerCase() === newName.toLowerCase())) return
-    const nextNames     = sortNames(current.map((n) => (n === oldName ? newName : n)))
-    const newNamesState = { ...namesBySheetRef.current, [sid]: nextNames }
-    setNamesBySheet(newNamesState)
-    patchRef.current('names', { [sid]: nextNames })
-
-    // ── also rename tag in same sheet
-    const currentTags = tagsBySheetRef.current[sid] ?? {}
-    if (currentTags[oldName]) {
-      const nextTags    = { ...currentTags, [newName]: currentTags[oldName] }
-      delete nextTags[oldName]
-      const newTagState = { ...tagsBySheetRef.current, [sid]: nextTags }
-      setTagsBySheet(newTagState)
-      patchRef.current('tags', { [sid]: nextTags })
+  // NAMES
+  // ═══════════════════════════════════════════════════════════════════════════
+  /** Add many names to the active sheet in ONE write. Returns how many were added. */
+  const addNames = useCallback((rawList) => {
+    if (!readyRef.current) return 0
+    const sid = S.current.activeSheetId
+    const cur = S.current.namesBySheet[sid] ?? []
+    if (cur.length >= MAX_NAMES_PER_SHEET) {
+      setError(`This sheet is full (${MAX_NAMES_PER_SHEET} names) — start a new sheet.`)
+      return 0
     }
+    const next  = mergeNames(cur, rawList)
+    const added = next.length - cur.length
+    if (added > 0) putNames(sid, next)
+    return added
+  }, [putNames])
 
-    // ── also rename in all groups
-    const nextGroups = {}
-    Object.entries(groupsRef.current).forEach(([id, g]) => {
-      nextGroups[id] = { ...g, members: g.members.map((n) => (n === oldName ? newName : n)) }
-    })
-    setGroups(nextGroups)
-    replaceRef.current('groups', { groups: nextGroups })
-  }, [])
+  const addName = useCallback((raw) => addNames([raw]) > 0, [addNames])
+
+  const editName = useCallback((oldName, raw) => {
+    if (!readyRef.current) return false
+    const newName = cleanName(raw)
+    if (!newName || newName === oldName) return false
+    const sid = S.current.activeSheetId
+    const cur = S.current.namesBySheet[sid] ?? []
+    if (cur.some((n) => n !== oldName && n.toLowerCase() === newName.toLowerCase())) return false
+    putNames(sid, sortNames(cur.map((n) => (n === oldName ? newName : n))))
+
+    const tags = S.current.tagsBySheet[sid] ?? {}
+    if (tags[oldName]) {
+      const { [oldName]: color, ...rest } = tags
+      putTags(sid, { ...rest, [newName]: color })
+    }
+    return true
+  }, [putNames, putTags])
 
   const removeName = useCallback((name) => {
-    const sid      = activeSheetIdRef.current
-    const current  = namesBySheetRef.current[sid] ?? []
-    const next     = current.filter((n) => n !== name)
-    const newState = { ...namesBySheetRef.current, [sid]: next }
-    setNamesBySheet(newState)
-    patchRef.current('names', { [sid]: next })
-
-    // ── also remove tag
-    const currentTags = tagsBySheetRef.current[sid] ?? {}
-    if (currentTags[name]) {
-      const nextTags    = { ...currentTags }
-      delete nextTags[name]
-      const newTagState = { ...tagsBySheetRef.current, [sid]: nextTags }
-      setTagsBySheet(newTagState)
-      patchRef.current('tags', { [sid]: nextTags })
+    if (!readyRef.current) return
+    const sid = S.current.activeSheetId
+    putNames(sid, (S.current.namesBySheet[sid] ?? []).filter((n) => n !== name))
+    const tags = S.current.tagsBySheet[sid] ?? {}
+    if (tags[name]) {
+      const { [name]: _drop, ...rest } = tags
+      putTags(sid, rest)
     }
+  }, [putNames, putTags])
 
-    // ── also remove from all groups
-    const nextGroups = {}
-    Object.entries(groupsRef.current).forEach(([id, g]) => {
-      nextGroups[id] = { ...g, members: g.members.filter((n) => n !== name) }
-    })
-    setGroups(nextGroups)
-    replaceRef.current('groups', { groups: nextGroups })
-  }, [])
+  /** Clear the active sheet. Returns what was removed so the caller can offer Undo. */
+  const clearSheet = useCallback(() => {
+    if (!readyRef.current) return null
+    const sid     = S.current.activeSheetId
+    const removed = { sheetId: sid, names: S.current.namesBySheet[sid] ?? [], tags: S.current.tagsBySheet[sid] ?? {} }
+    putNames(sid, [])
+    if (Object.keys(removed.tags).length) putTags(sid, {})
+    return removed
+  }, [putNames, putTags])
 
-  // Clears only the ACTIVE sheet's names (same behaviour as old useNames.clearAll)
-  const clearAllNames = useCallback(() => {
-    const sid      = activeSheetIdRef.current
-    const newState = { ...namesBySheetRef.current, [sid]: [] }
-    setNamesBySheet(newState)
-    patchRef.current('names', { [sid]: [] })
-  }, [])
+  const restoreCleared = useCallback((removed) => {
+    if (!readyRef.current || !removed) return
+    const { sheetId, names, tags } = removed
+    if (!S.current.sheets.some((s) => s.id === sheetId)) return
+    putNames(sheetId, mergeNames(S.current.namesBySheet[sheetId] ?? [], names))
+    if (Object.keys(tags).length) putTags(sheetId, { ...tags, ...(S.current.tagsBySheet[sheetId] ?? {}) })
+  }, [putNames, putTags])
 
-  // no-op in Firestore mode (real-time subscription keeps data fresh)
-  const reloadFromStorage = useCallback(() => {}, [])
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // TAGS API  (same surface as the old useTags hook)
-  // ════════════════════════════════════════════════════════════════════════════
-  const tags = tagsBySheet[activeSheetId] ?? {}
-
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TAGS (colours)
+  // ═══════════════════════════════════════════════════════════════════════════
   const setTag = useCallback((name, colorKey) => {
-    const sid      = activeSheetIdRef.current
-    const current  = { ...(tagsBySheetRef.current[sid] ?? {}) }
-    if (!colorKey) delete current[name]
-    else current[name] = colorKey
-    const newState = { ...tagsBySheetRef.current, [sid]: current }
-    setTagsBySheet(newState)
-    patchRef.current('tags', { [sid]: current })
-  }, [])
-
-  const renameTag = useCallback((oldName, newName) => {
-    const sid     = activeSheetIdRef.current
-    const current = tagsBySheetRef.current[sid] ?? {}
-    if (!current[oldName]) return
-    const next    = { ...current, [newName]: current[oldName] }
-    delete next[oldName]
-    const newState = { ...tagsBySheetRef.current, [sid]: next }
-    setTagsBySheet(newState)
-    patchRef.current('tags', { [sid]: next })
-  }, [])
-
-  const removeTag = useCallback((name) => {
-    const sid     = activeSheetIdRef.current
-    const current = tagsBySheetRef.current[sid] ?? {}
-    if (!current[name]) return
-    const next    = { ...current }
-    delete next[name]
-    const newState = { ...tagsBySheetRef.current, [sid]: next }
-    setTagsBySheet(newState)
-    patchRef.current('tags', { [sid]: next })
-  }, [])
+    if (!readyRef.current) return
+    if (!canTag(name) || (colorKey && !TAG_KEYS.includes(colorKey))) return
+    const sid  = S.current.activeSheetId
+    const next = { ...(S.current.tagsBySheet[sid] ?? {}) }
+    if (colorKey) next[name] = colorKey
+    else delete next[name]
+    putTags(sid, next)
+  }, [putTags])
 
   const clearTags = useCallback(() => {
-    const sid      = activeSheetIdRef.current
-    const newState = { ...tagsBySheetRef.current, [sid]: {} }
-    setTagsBySheet(newState)
-    patchRef.current('tags', { [sid]: {} })
-  }, [])
+    if (!readyRef.current) return
+    putTags(S.current.activeSheetId, {})
+  }, [putTags])
 
-  const mergeTags = useCallback((incoming) => {
-    const sid     = activeSheetIdRef.current
-    const current = tagsBySheetRef.current[sid] ?? {}
-    const next    = { ...current, ...incoming }
-    const newState = { ...tagsBySheetRef.current, [sid]: next }
-    setTagsBySheet(newState)
-    patchRef.current('tags', { [sid]: next })
-  }, [])
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SHEETS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const switchSheet = useCallback((id) => {
+    if (!S.current.sheets.some((s) => s.id === id)) return
+    commit({ activeSheetId: id })
+    saveActive(id)
+  }, [commit])
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // BAG API  (same surface as the old useBag hook)
-  // ════════════════════════════════════════════════════════════════════════════
-  const addToBag = useCallback((name) => {
-    if (bagRef.current.includes(name)) return
-    const next = [...bagRef.current, name]
-    setBag(next)
-    patchRef.current('bag', { bag: next })
-  }, [])
-
-  const removeFromBag = useCallback((name) => {
-    const next = bagRef.current.filter((n) => n !== name)
-    setBag(next)
-    patchRef.current('bag', { bag: next })
-  }, [])
-
-  const clearBag = useCallback(() => {
-    setBag([])
-    patchRef.current('bag', { bag: [] })
-  }, [])
-
-  const mergeBag = useCallback((items) => {
-    const next = [...bagRef.current]
-    items.forEach((item) => { if (!next.includes(item)) next.push(item) })
-    setBag(next)
-    patchRef.current('bag', { bag: next })
-  }, [])
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // GROUPS API  (same surface as the old useGroups hook)
-  // ════════════════════════════════════════════════════════════════════════════
-  const createGroup = useCallback((name) => {
-    const id   = `g-${Date.now()}`
-    const next = { ...groupsRef.current, [id]: { name, members: [] } }
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-    return id
-  }, [])
-
-  const renameGroup = useCallback((id, name) => {
-    if (!groupsRef.current[id]) return
-    const next = { ...groupsRef.current, [id]: { ...groupsRef.current[id], name } }
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-  }, [])
-
-  const deleteGroup = useCallback((id) => {
-    const next = { ...groupsRef.current }
-    delete next[id]
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-  }, [])
-
-  const clearGroups = useCallback(() => {
-    setGroups({})
-    replaceRef.current('groups', { groups: {} })
-  }, [])
-
-  const addToGroup = useCallback((groupId, name) => {
-    const g = groupsRef.current[groupId]
-    if (!g || g.members.includes(name)) return
-    const next = { ...groupsRef.current, [groupId]: { ...g, members: [...g.members, name] } }
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-  }, [])
-
-  const removeFromGroup = useCallback((groupId, name) => {
-    const g = groupsRef.current[groupId]
-    if (!g) return
-    const next = { ...groupsRef.current, [groupId]: { ...g, members: g.members.filter((n) => n !== name) } }
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-  }, [])
-
-  const mergeGroups = useCallback((incoming) => {
-    const next = { ...groupsRef.current }
-    let i = 0
-    Object.values(incoming).forEach((g) => {
-      const existEntry = Object.entries(next).find(([, eg]) => eg.name === g.name)
-      if (existEntry) {
-        const [eid, eg] = existEntry
-        const merged = [...eg.members]
-        g.members.forEach((m) => { if (!merged.includes(m)) merged.push(m) })
-        next[eid] = { ...eg, members: merged }
-      } else {
-        next[`g-import-${Date.now()}-${i++}`] = { name: g.name, members: [...g.members] }
-      }
-    })
-    setGroups(next)
-    replaceRef.current('groups', { groups: next })
-  }, [])
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // SHEETS API  (same surface as the old useSheets hook)
-  // ════════════════════════════════════════════════════════════════════════════
   const addSheet = useCallback(() => {
+    if (!readyRef.current) return null
+    const cur = S.current.sheets
+    if (cur.length >= MAX_SHEETS) {
+      setError(`You can have up to ${MAX_SHEETS} sheets.`)
+      return null
+    }
     const id   = `sheet-${Date.now()}`
-    const num  = sheetsRef.current.length + 1
-    const next = [...sheetsRef.current, { id, name: `Sheet ${num}` }]
-    setSheets(next)
-    setActiveSheetId(id)
-    patchRef.current('sheets', { sheets: next, activeSheetId: id })
+    const next = [...cur, { id, name: uniqueSheetName(`Sheet ${cur.length + 1}`, cur) }]
+    commit({ sheets: next, activeSheetId: id })
+    saveActive(id)
+    save('sheets', { sheets: next })
     return id
-  }, [])
+  }, [commit, save])
 
-  const renameSheet = useCallback((id, name) => {
-    const next = sheetsRef.current.map((s) => (s.id === id ? { ...s, name } : s))
-    setSheets(next)
-    patchRef.current('sheets', { sheets: next })
-  }, [])
+  const renameSheet = useCallback((id, raw) => {
+    if (!readyRef.current) return
+    const name = cleanSheetName(raw)
+    if (!name) return
+    const next = S.current.sheets.map((s) => (s.id === id ? { ...s, name } : s))
+    commit({ sheets: next })
+    save('sheets', { sheets: next })
+  }, [commit, save])
 
   const deleteSheet = useCallback((id) => {
-    const prev = sheetsRef.current
+    if (!readyRef.current) return
+    const prev = S.current.sheets
     if (prev.length <= 1) return
-    const next      = prev.filter((s) => s.id !== id)
-    const newActive = activeSheetIdRef.current !== id
-      ? activeSheetIdRef.current
-      : (next[0]?.id ?? prev[0]?.id)
+    const next   = prev.filter((s) => s.id !== id)
+    const active = S.current.activeSheetId === id ? next[0].id : S.current.activeSheetId
+    const { [id]: _n, ...names } = S.current.namesBySheet
+    const { [id]: _t, ...tags }  = S.current.tagsBySheet
+    commit({ sheets: next, activeSheetId: active, namesBySheet: names, tagsBySheet: tags })
+    saveActive(active)
+    save('sheets', { sheets: next })
+    save('names',  { [id]: REMOVE() })
+    save('tags',   { [id]: REMOVE() })
+  }, [commit, save])
 
-    setSheets(next)
-    setActiveSheetId(newActive)
-    patchRef.current('sheets', { sheets: next, activeSheetId: newActive })
+  /** Move a name (and its colour) between sheets. */
+  const moveNameToSheet = useCallback((name, fromId, toId) => {
+    if (!readyRef.current) return { ok: false, reason: 'not-ready' }
+    if (fromId === toId) return { ok: false, reason: 'same-sheet' }
+    const from = S.current.namesBySheet[fromId] ?? []
+    const to   = S.current.namesBySheet[toId]   ?? []
+    if (!from.includes(name)) return { ok: false, reason: 'not-found' }
+    if (to.some((n) => n.toLowerCase() === name.toLowerCase())) return { ok: false, reason: 'duplicate' }
+    if (to.length >= MAX_NAMES_PER_SHEET) return { ok: false, reason: 'full' }
 
-    // Clear names + tags for deleted sheet — update local state AND Firestore.
-    // We write empty values (not deleteField) because patchUserData uses merge:true.
-    // The orphaned sheetId key in Firestore becomes [] / {} so it never restores
-    // ghost data on next login or cross-device load.
-    const newNames = { ...namesBySheetRef.current }
-    delete newNames[id]
-    setNamesBySheet(newNames)
-    patchRef.current('names', { [id]: [] })   // zero out in Firestore
+    const namesBySheet = { ...S.current.namesBySheet, [fromId]: from.filter((n) => n !== name), [toId]: sortNames([...to, name]) }
+    commit({ namesBySheet })
+    save('names', { [fromId]: namesBySheet[fromId], [toId]: namesBySheet[toId] })
 
-    const newTags = { ...tagsBySheetRef.current }
-    delete newTags[id]
-    setTagsBySheet(newTags)
-    patchRef.current('tags', { [id]: {} })    // zero out in Firestore
-  }, [])
-
-  const switchSheet = useCallback((id) => {
-    setActiveSheetId(id)
-    patchRef.current('sheets', { activeSheetId: id })
-  }, [])
-
-  // Move a name from one sheet to another — atomically updates names, tags, groups
-  const moveNameToSheet = useCallback((name, fromSheetId, toSheetId) => {
-    if (fromSheetId === toSheetId) return { ok: false, reason: 'same-sheet' }
-
-    const fromArr = namesBySheetRef.current[fromSheetId] ?? []
-    const toArr   = namesBySheetRef.current[toSheetId]   ?? []
-
-    if (!fromArr.includes(name))
-      return { ok: false, reason: 'not-found' }
-    if (toArr.some((n) => n.toLowerCase() === name.toLowerCase()))
-      return { ok: false, reason: 'duplicate' }
-
-    const newFrom = fromArr.filter((n) => n !== name)
-    const newTo   = sortNames([...toArr, name])
-    const newNamesState = { ...namesBySheetRef.current, [fromSheetId]: newFrom, [toSheetId]: newTo }
-    setNamesBySheet(newNamesState)
-    patchRef.current('names', { [fromSheetId]: newFrom, [toSheetId]: newTo })
-
-    // Remove tag from source sheet
-    const srcTags    = { ...(tagsBySheetRef.current[fromSheetId] ?? {}) }
-    delete srcTags[name]
-    const newTagState = { ...tagsBySheetRef.current, [fromSheetId]: srcTags }
-    setTagsBySheet(newTagState)
-    patchRef.current('tags', { [fromSheetId]: srcTags })
-
-    // Remove name from all groups
-    const nextGroups = {}
-    Object.entries(groupsRef.current).forEach(([id, g]) => {
-      nextGroups[id] = { ...g, members: g.members.filter((n) => n !== name) }
-    })
-    setGroups(nextGroups)
-    replaceRef.current('groups', { groups: nextGroups })
-
-    return { ok: true }
-  }, [])
-
-  // ════════════════════════════════════════════════════════════════════════════
-  // PROFILE / PREFS
-  // ════════════════════════════════════════════════════════════════════════════
-  const toggleNoClear = useCallback(() => {
-    _setNoClear((prev) => {
-      const next = !prev
-      patchRef.current('profile', { noclear: next })
-      return next
-    })
-  }, [])
-
-  // ── clearAll: wipes only the ACTIVE sheet's names + tags.
-  // Bag and groups are cross-sheet and are NOT touched here.
-  const clearAll = useCallback(() => {
-    clearAllNames()
-    clearTags()
-  }, [clearAllNames, clearTags])
-
-  // ── clearEverything: full nuclear reset used by Settings → "Reset all data".
-  // Wipes EVERY sheet's names+tags, plus bag and groups.
-  const clearEverything = useCallback(() => {
-    // Clear names + tags for every sheet
-    const emptyNames = {}
-    const emptyTags  = {}
-    sheetsRef.current.forEach(s => { emptyNames[s.id] = []; emptyTags[s.id] = {} })
-    setNamesBySheet(emptyNames)
-    setTagsBySheet(emptyTags)
-    patchRef.current('names', emptyNames)
-    patchRef.current('tags', emptyTags)
-    // Clear bag and groups
-    clearBag()
-    clearGroups()
-  }, [clearBag, clearGroups])
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // FULL SNAPSHOT RESTORE  (multi-sheet, groups, bag, tags)
-  // ══════════════════════════════════════════════════════════════════════════
-  /**
-   * Atomically restore a full v2 snapshot from parseSnapshot().
-   * ALL existing data is replaced (sheets, names, tags, groups, bag).
-   *
-   * Strategy:
-   *  - Merge snapshot sheets into existing sheet list by ID.
-   *    Sheets that already exist keep their ID (data just updated).
-   *    New sheets from the snapshot are appended.
-   *  - Name/tag maps are written per-sheet directly.
-   *  - Groups and bag are fully replaced.
-   *
-   * Returns a summary { sheetsRestored, totalNames, groups, bag, colors }.
-   */
-  const restoreFullSnapshot = useCallback((parsed) => {
-    const snapSheets      = parsed.sheets      ?? []
-    const snapNamesBySheet = parsed.namesBySheet ?? {}
-    const snapTagsBySheet  = parsed.tagsBySheet  ?? {}
-    const snapGroups       = parsed.groups        ?? {}
-    const snapBag          = parsed.bag           ?? []
-
-    // ── 1. Merge sheet list ───────────────────────────────────────────────────────────
-    // Build a final sheet list: existing sheets stay in order; snapshot sheets
-    // with IDs not yet in the list are appended.
-    const existingIds = new Set(sheetsRef.current.map(s => s.id))
-    const mergedSheets = [...sheetsRef.current]
-    const sheetIdMap = {}  // snapSheetId -> finalSheetId (in case of remapping)
-
-    snapSheets.forEach((snapSheet) => {
-      if (existingIds.has(snapSheet.id)) {
-        // ID collision: reuse existing sheet with same ID (just overwrite data)
-        sheetIdMap[snapSheet.id] = snapSheet.id
-        // Rename sheet to match snapshot name
-        const idx = mergedSheets.findIndex(s => s.id === snapSheet.id)
-        if (idx !== -1) mergedSheets[idx] = { ...mergedSheets[idx], name: snapSheet.name }
-      } else {
-        // New sheet from snapshot — append it
-        mergedSheets.push({ id: snapSheet.id, name: snapSheet.name })
-        sheetIdMap[snapSheet.id] = snapSheet.id
-        existingIds.add(snapSheet.id)
-      }
-    })
-
-    const newActiveId = mergedSheets[0]?.id ?? activeSheetIdRef.current
-
-    setSheets(mergedSheets)
-    setActiveSheetId(newActiveId)
-    patchRef.current('sheets', { sheets: mergedSheets, activeSheetId: newActiveId })
-
-    // ── 2. Write names per sheet ──────────────────────────────────────────────────────
-    const newNamesBySheet = { ...namesBySheetRef.current }
-    const namesFirestorePatch = {}
-    let totalNames = 0
-
-    snapSheets.forEach((snapSheet) => {
-      const finalId   = sheetIdMap[snapSheet.id]
-      const incoming  = snapNamesBySheet[snapSheet.id] ?? []
-      const existing  = newNamesBySheet[finalId] ?? []
-      // Merge: add incoming names not already present (case-insensitive)
-      const lowerExisting = new Set(existing.map(n => n.toLowerCase()))
-      const merged = [...existing]
-      incoming.forEach(n => { if (!lowerExisting.has(n.toLowerCase())) { merged.push(n); lowerExisting.add(n.toLowerCase()) } })
-      const sorted = [...merged].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-      newNamesBySheet[finalId] = sorted
-      namesFirestorePatch[finalId] = sorted
-      totalNames += sorted.length
-    })
-
-    setNamesBySheet(newNamesBySheet)
-    patchRef.current('names', namesFirestorePatch)
-
-    // ── 3. Write tags per sheet ─────────────────────────────────────────────────────
-    const newTagsBySheet = { ...tagsBySheetRef.current }
-    const tagsFirestorePatch = {}
-    let totalColors = 0
-
-    snapSheets.forEach((snapSheet) => {
-      const finalId  = sheetIdMap[snapSheet.id]
-      const incoming = snapTagsBySheet[snapSheet.id] ?? {}
-      const existing = newTagsBySheet[finalId] ?? {}
-      const merged   = { ...existing, ...incoming }  // snapshot tags win on conflict
-      newTagsBySheet[finalId] = merged
-      tagsFirestorePatch[finalId] = merged
-      totalColors += Object.keys(incoming).length
-    })
-
-    setTagsBySheet(newTagsBySheet)
-    patchRef.current('tags', tagsFirestorePatch)
-
-    // ── 4. Merge groups ─────────────────────────────────────────────────────────────
-    const nextGroups = { ...groupsRef.current }
-    let gi = 0
-    Object.values(snapGroups).forEach((g) => {
-      const existEntry = Object.entries(nextGroups).find(([, eg]) => eg.name === g.name)
-      if (existEntry) {
-        const [eid, eg] = existEntry
-        const merged = [...eg.members]
-        g.members.forEach(m => { if (!merged.includes(m)) merged.push(m) })
-        nextGroups[eid] = { ...eg, members: merged }
-      } else {
-        nextGroups[`g-snap-${Date.now()}-${gi++}`] = { name: g.name, members: [...g.members] }
-      }
-    })
-    setGroups(nextGroups)
-    replaceRef.current('groups', { groups: nextGroups })
-
-    // ── 5. Merge bag ──────────────────────────────────────────────────────────────────
-    const nextBag = [...bagRef.current]
-    snapBag.forEach(item => { if (!nextBag.includes(item)) nextBag.push(item) })
-    setBag(nextBag)
-    patchRef.current('bag', { bag: nextBag })
-
-    return {
-      sheetsRestored: snapSheets.length,
-      totalNames,
-      groups:  Object.keys(snapGroups).length,
-      bag:     snapBag.length,
-      colors:  totalColors,
+    const fromTags = S.current.tagsBySheet[fromId] ?? {}
+    if (fromTags[name]) {
+      const { [name]: color, ...rest } = fromTags
+      const toTags = { ...(S.current.tagsBySheet[toId] ?? {}), [name]: color }
+      commit({ tagsBySheet: { ...S.current.tagsBySheet, [fromId]: rest, [toId]: toTags } })
+      save('tags', { [fromId]: rest, [toId]: toTags })
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    return { ok: true }
+  }, [commit, save])
 
-  // ─── Public API ───────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SNAPSHOT RESTORE — merges a parsed (already validated) snapshot
+  // ═══════════════════════════════════════════════════════════════════════════
+  const restoreFullSnapshot = useCallback((parsed) => {
+    if (!readyRef.current) return null
+    const sheets       = [...S.current.sheets]
+    const namesBySheet = { ...S.current.namesBySheet }
+    const tagsBySheet  = { ...S.current.tagsBySheet }
+    const namesPatch = {}
+    const tagsPatch  = {}
+    let sheetsRestored = 0, totalNames = 0, colors = 0
+
+    for (const snapSheet of parsed.sheets) {
+      let target = sheets.find((s) => s.id === snapSheet.id)
+      if (!target) {
+        if (sheets.length >= MAX_SHEETS) break
+        target = { id: snapSheet.id, name: uniqueSheetName(snapSheet.name, sheets) }
+        sheets.push(target)
+      }
+      const id     = target.id
+      const before = namesBySheet[id] ?? []
+      const merged = mergeNames(before, parsed.namesBySheet[snapSheet.id] ?? [])
+      namesBySheet[id] = namesPatch[id] = merged
+      totalNames += merged.length - before.length
+
+      const incoming = parsed.tagsBySheet[snapSheet.id] ?? {}
+      const present  = new Set(merged)
+      const kept     = Object.fromEntries(
+        Object.entries(incoming).map(([n, c]) => [cleanName(n), c]).filter(([n]) => present.has(n)),
+      )
+      tagsBySheet[id] = tagsPatch[id] = { ...(tagsBySheet[id] ?? {}), ...kept }
+      colors += Object.keys(kept).length
+      sheetsRestored++
+    }
+
+    commit({ sheets, namesBySheet, tagsBySheet })
+    save('sheets', { sheets })
+    save('names', namesPatch)
+    save('tags', tagsPatch)
+    return { sheetsRestored, totalNames, colors }
+  }, [commit, save])
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DELETE EVERYTHING (Settings)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const deleteAllData = useCallback(async () => {
+    if (!uidRef.current) return false
+    try {
+      await deleteAllUserData(uidRef.current)
+    } catch (e) {
+      console.error('[ClearMyMind] delete failed:', e.code)
+      return false
+    }
+    commit(initialState())
+    clearLocalPrefs()
+    return true
+  }, [commit])
+
+  // ─── Derived values for the active sheet ───────────────────────────────────
+  const { sheets, activeSheetId, namesBySheet, tagsBySheet } = state
+  const names = useMemo(() => sortNames(namesBySheet[activeSheetId] ?? []), [namesBySheet, activeSheetId])
+  const tags  = tagsBySheet[activeSheetId] ?? EMPTY_TAGS
+
   return {
-    writeError, clearWriteError,
-    fetchFailed,
-
-    // Sheets
-    sheets, activeSheetId,
-    addSheet, renameSheet, deleteSheet, switchSheet, moveNameToSheet,
-
-    // Names (active sheet) + raw multi-sheet maps for full snapshot
-    names, addName, editName, removeName,
-    clearAll, clearEverything, reloadFromStorage,
-    namesBySheet: namesBySheetRef.current,
-    tagsBySheet:  tagsBySheetRef.current,
-
-    // Tags (active sheet)
-    tags, setTag, renameTag, removeTag, clearTags, mergeTags,
-
-    // Bag
-    bag, addToBag, removeFromBag, clearBag, mergeBag,
-
-    // Groups
-    groups, createGroup, renameGroup, deleteGroup, clearGroups,
-    addToGroup, removeFromGroup, mergeGroups,
-
-    // Full snapshot restore (all sheets at once)
-    restoreFullSnapshot,
-
-    // Prefs
-    noClear, toggleNoClear,
+    status, error, clearError,
+    sheets, activeSheetId, namesBySheet, tagsBySheet,
+    switchSheet, addSheet, renameSheet, deleteSheet, moveNameToSheet,
+    names, addName, addNames, editName, removeName, clearSheet, restoreCleared,
+    tags, setTag, clearTags,
+    restoreFullSnapshot, deleteAllData,
   }
 }

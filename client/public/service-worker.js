@@ -1,82 +1,58 @@
 // ClearMyMind — Service Worker
-// Strategy:
-//   • Navigation requests (HTML) → Network-first so users always get the latest app shell
-//   • Static assets (JS/CSS with hash in filename) → Cache-first (immutable)
-//   • Everything else → Network-first with cache fallback
+// Caches only the app's own static files (never your data — that lives in
+// Firestore, which this worker ignores as a cross-origin request).
+//   • Navigations (HTML)       → network-first, fall back to the cached app shell
+//   • Hashed JS/CSS in /assets → cache-first (file names change on every build)
+//   • Other same-origin files  → network-first with cache fallback
 
-// Bump this version on every deploy to evict old stale caches immediately.
-const CACHE_VERSION = 'v3'
-const CACHE_NAME = `clearmymind-${CACHE_VERSION}`
+const CACHE_VERSION = 'v4'
+const CACHE_NAME    = `clearmymind-${CACHE_VERSION}`
+const SHELL_URL     = new URL('./', self.registration.scope).href
 
-// ── Install: skip waiting so new SW activates right away ─────────────────────
-self.addEventListener('install', () => {
-  self.skipWaiting()
-})
+self.addEventListener('install', () => self.skipWaiting())
 
-// ── Activate: remove ALL old caches on upgrade ───────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
-      )
-    )
+    caches.keys()
+      .then((names) => Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n))))
+      .then(() => self.clients.claim()),
   )
-  // Take control of all open clients immediately
-  self.clients.claim()
 })
 
-// ── Fetch handler ─────────────────────────────────────────────────────────────
+function putInCache(key, response) {
+  if (response && response.ok && response.type === 'basic') {
+    const copy = response.clone()
+    caches.open(CACHE_NAME).then((cache) => cache.put(key, copy))
+  }
+  return response
+}
+
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests
-  if (event.request.method !== 'GET') return
+  const { request } = event
+  if (request.method !== 'GET') return
+  const url = new URL(request.url)
+  if (url.origin !== self.location.origin || !url.href.startsWith(self.registration.scope)) return
 
-  const url = new URL(event.request.url)
-
-  // Skip cross-origin requests (Firebase, Google Fonts, Analytics, etc.)
-  if (url.origin !== self.location.origin) return
-
-  const isNavigation = event.request.mode === 'navigate'
-
-  // ── Hashed static assets (e.g. index-Abc123.js) → cache-first (immutable) ──
-  const isHashedAsset = /\/assets\/[^/]+-[A-Za-z0-9]{8,}\.(js|css)$/.test(url.pathname)
-
-  if (isHashedAsset) {
+  if (request.mode === 'navigate') {
+    // Every navigation is the same SPA shell — store it under one key
     event.respondWith(
-      caches.match(event.request).then((cached) => {
-        if (cached) return cached
-        return fetch(event.request).then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
-          }
-          return response
-        })
-      })
+      fetch(request)
+        .then((res) => putInCache(SHELL_URL, res))
+        .catch(() => caches.match(SHELL_URL)),
     )
     return
   }
 
-  // ── Navigation + everything else → Network-first ─────────────────────────
+  if (/\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then((cached) => cached ?? fetch(request).then((res) => putInCache(request, res))),
+    )
+    return
+  }
+
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response && response.status === 200) {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
-        }
-        return response
-      })
-      .catch(() => {
-        // Offline fallback: serve from cache
-        return caches.match(event.request).then((cached) => {
-          if (cached) return cached
-          // For navigations, serve app shell so React can boot offline
-          if (isNavigation) return caches.match('./index.html')
-        })
-      })
+    fetch(request)
+      .then((res) => putInCache(request, res))
+      .catch(() => caches.match(request)),
   )
 })
-

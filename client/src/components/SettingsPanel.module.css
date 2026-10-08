@@ -173,24 +173,6 @@
 }
 
 /* ── App Lock status badge ── */
-.lockStatusBadge {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #86efac;
-  background: rgba(34, 197, 94, 0.07);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  border-radius: 0.6rem;
-  padding: 0.5rem 0.875rem;
-  margin-bottom: 0.6rem;
-}
-.lockDisabled {
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.07);
-  border-color: rgba(251, 191, 36, 0.2);
-}
-.lockStatusBadge strong { font-weight: 600; }
 
 /* ── Confirm dialog ── */
 .confirmText {
@@ -238,12 +220,6 @@
 .dangerBtn:disabled, .cancelBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── Form (change password / disable lock) ── */
-.hint {
-  font-size: 0.85rem;
-  color: #6b6b8a;
-  margin-bottom: 1rem;
-  line-height: 1.5;
-}
 .form {
   display: flex;
   flex-direction: column;
@@ -266,22 +242,6 @@
   box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
 }
 .input:disabled { opacity: 0.5; }
-
-.primaryBtn {
-  padding: 0.75rem;
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
-  border: none;
-  border-radius: 0.65rem;
-  color: #fff;
-  font-size: 0.95rem;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
-}
-.primaryBtn:hover:not(:disabled) { opacity: 0.9; }
-.primaryBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Footer ── */
 .footer {

@@ -2,6 +2,9 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   signOut as firebaseSignOut,
   deleteUser,
   onAuthStateChanged,
@@ -25,6 +28,17 @@ export function sendVerification(user) {
   return sendEmailVerification(user)
 }
 
+export function sendPasswordReset(email) {
+  if (!auth) return Promise.reject(new Error('auth/not-configured'))
+  return sendPasswordResetEmail(auth, email)
+}
+
+/** Re-check the password — Firebase requires a recent login before deleteUser. */
+export function reauthenticate(user, password) {
+  if (!auth) return Promise.reject(new Error('auth/not-configured'))
+  return reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, password))
+}
+
 export function signOut() {
   if (!auth) return Promise.resolve()
   return firebaseSignOut(auth)
@@ -33,6 +47,10 @@ export function signOut() {
 export function deleteAccount(user) {
   if (!auth) return Promise.reject(new Error('auth/not-configured'))
   return deleteUser(user)
+}
+
+export function currentUser() {
+  return auth?.currentUser ?? null
 }
 
 // Returns an unsubscribe function

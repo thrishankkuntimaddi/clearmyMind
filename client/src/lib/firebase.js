@@ -1,10 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, setPersistence, indexedDBLocalPersistence } from 'firebase/auth'
-import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
-} from 'firebase/firestore'
+import { initializeFirestore, memoryLocalCache, clearIndexedDbPersistence } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,7 +9,6 @@ const firebaseConfig = {
   storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId:             import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 }
 
 // Guard: if credentials are missing, skip init so the app can show setup instructions
@@ -22,40 +17,28 @@ export const isConfigured = !!(firebaseConfig.apiKey && firebaseConfig.projectId
 let app  = null
 let auth = null
 let db   = null
+// Resolves once Firestore is safe to use (old on-disk cache cleared).
+let dbReady = Promise.resolve()
 
 if (isConfigured) {
   try {
     app  = initializeApp(firebaseConfig)
     auth = getAuth(app)
-
-    // Explicitly use IndexedDB persistence for auth sessions.
-    // This is more reliable than the default (browserLocalStorage) in PWA/GitHub Pages
-    // contexts where the service worker or browser storage policies can silently drop
-    // localStorage entries. IndexedDB survives service worker updates and PWA installs.
-    // NOTE: setPersistence is async but we don't await it here intentionally — the auth
-    // SDK applies it before any onAuthStateChanged fires, so this is safe.
     setPersistence(auth, indexedDBLocalPersistence).catch((e) => {
-      console.warn('[ClearMyMind] Could not set IndexedDB persistence, falling back to default:', e.code)
+      console.warn('[ClearMyMind] Could not set IndexedDB auth persistence:', e.code)
     })
 
-    // Enable IndexedDB offline persistence so that on every page reload
-    // Firestore returns cached data INSTANTLY from the local IndexedDB store —
-    // even before the network round-trip completes. Without this, every refresh
-    // starts cold: getDoc goes to the network, and if the Firebase auth token
-    // is still being refreshed at that moment, the read gets PERMISSION_DENIED,
-    // returns null, and the app mistakenly seeds "new user" defaults, wiping data.
-    //
-    // persistentMultipleTabManager allows multiple open tabs to share the cache
-    // safely (one tab is the primary, others sync from it).
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
-      }),
-    })
+    // Memory-only cache: your names are never written to this device's disk,
+    // so nothing is left behind on a shared computer after you sign out.
+    db = initializeFirestore(app, { localCache: memoryLocalCache() })
+
+    // Earlier versions persisted Firestore data to IndexedDB. Remove that
+    // leftover copy. Must run before the first Firestore read/write.
+    dbReady = clearIndexedDbPersistence(db).catch(() => { /* nothing to clear */ })
   } catch (e) {
     console.error('[ClearMyMind] Firebase init failed:', e)
   }
 }
 
-export { auth, db }
+export { auth, db, dbReady }
 export default app

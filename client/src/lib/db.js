@@ -2,199 +2,118 @@
  * db.js — ClearMyMind Firestore Data Layer
  * ==========================================
  * The ONLY file in the codebase that imports firebase/firestore.
- * All reads, writes, and real-time listeners live here.
  *
- * ARCHITECTURE:
- *   useFirestoreData.js / SettingsPanel.jsx
- *      ↓
- *   db.js             ← YOU ARE HERE
- *      ↓
- *   Firestore         ← users/{uid}/data/{docName}
+ * DATA MODEL — 3 documents per user:
+ *   users/{uid}/data/sheets  — { sheets: [{ id, name }], schema: 2 }
+ *   users/{uid}/data/names   — { [sheetId]: string[] }
+ *   users/{uid}/data/tags    — { [sheetId]: { [name]: colorKey } }
  *
- * DATA MODEL — 6 sub-documents per user:
- *   users/{uid}/data/sheets   — sheet list + activeSheetId
- *   users/{uid}/data/names    — { [sheetId]: string[] }
- *   users/{uid}/data/tags     — { [sheetId]: { [name]: colorKey } }
- *   users/{uid}/data/groups   — { groups: { [id]: { name, members } } }
- *   users/{uid}/data/bag      — { bag: string[] }
- *   users/{uid}/data/profile  — { noclear, emailVerified, … }
- *
- * PUBLIC API:
- *   patchUserData(uid, docName, partial)  → write (setDoc merge) to one doc
- *   fetchAllUserDataWithErrors(uid)       → read all 6 docs at boot (tracks per-doc errors)
- *   subscribeToUserData(uid, onUpdate)    → real-time cross-device sync
- *   deleteAllUserData(uid)               → wipe all docs (account deletion)
- *   stopListening()                      → tear down listeners on logout
+ * LEGACY (v1) — read once for migration, removed by deleteAllUserData():
+ *   users/{uid}/data/groups, users/{uid}/data/bag,
+ *   users/{uid}/memory/*, users/{uid}/memoryTrash/*,
+ *   users/{uid}/data/profile.noclear
  */
 
 import {
   doc,
+  collection,
   setDoc,
   getDoc,
-  getDocFromCache,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  deleteField,
   onSnapshot,
   serverTimestamp,
-  deleteDoc,
+  FieldPath,
 } from 'firebase/firestore'
-import { db } from './firebase.js'
-import { deleteAllMemoryData } from './memoryDb.js'
+import { db, dbReady } from './firebase.js'
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-export const USER_DOCS = ['sheets', 'names', 'tags', 'groups', 'bag', 'profile']
+export const USER_DOCS = ['sheets', 'names', 'tags']
+const LEGACY_DOCS = ['groups', 'bag']
+const LEGACY_COLLECTIONS = ['memory', 'memoryTrash']
 
-// ─── In-memory cache (post-fetch) ────────────────────────────────────────────
-// Populated by fetchAllUserDataWithErrors() on boot. After that, hooks read from
-// React state (which is already hydrated from the cache). Useful for
-// synchronous reads in event handlers that can't await Firestore.
-let _cache = {}
-
-// ─── Active listener unsubscribe functions ───────────────────────────────────
-let _unsubs = []
-
-// ─── Internal ─────────────────────────────────────────────────────────────────
 function docRef(uid, docName) {
-  return doc(db, `users/${uid}/data/${docName}`)
+  return doc(db, 'users', uid, 'data', docName)
 }
 
-// ─── patchUserData — write to Firestore ──────────────────────────────────────
-/**
- * Merge-write a partial update to one Firestore doc.
- */
-export async function patchUserData(uid, docName, partial) {
+// Sentinel for removing a top-level field (e.g. a deleted sheet's names).
+export const REMOVE = deleteField
+
+// ─── loadUserData — one-shot read of all docs at boot ────────────────────────
+// Throws if Firestore is unreachable. The caller must NOT write anything in
+// that case, otherwise it could overwrite real data with empty defaults.
+export async function loadUserData(uid) {
+  await dbReady
+  const snaps = await Promise.all(USER_DOCS.map((d) => getDoc(docRef(uid, d))))
+  const out = {}
+  USER_DOCS.forEach((d, i) => { out[d] = snaps[i].exists() ? snaps[i].data() : null })
+  return out
+}
+
+// ─── writeFields — replace specific top-level fields of one doc ──────────────
+// Uses mergeFields so each listed field is REPLACED, not deep-merged. A plain
+// { merge: true } would deep-merge nested maps, which silently kept removed
+// tag colours alive in Firestore.
+export async function writeFields(uid, docName, fields) {
   if (!uid || !db) return false
-  // Update cache synchronously
-  _cache[docName] = { ...(_cache[docName] ?? {}), ...partial }
+  const keys = Object.keys(fields)
+  if (!keys.length) return true
   try {
-    await setDoc(docRef(uid, docName), { ...partial, updatedAt: serverTimestamp() }, { merge: true })
+    await setDoc(
+      docRef(uid, docName),
+      { ...fields, updatedAt: serverTimestamp() },
+      { mergeFields: [...keys.map((k) => new FieldPath(k)), 'updatedAt'] },
+    )
     return true
   } catch (e) {
-    console.error(`[ClearMyMind] patchUserData(${docName}) failed:`, e.code, e.message)
+    console.error(`[ClearMyMind] write(${docName}) failed:`, e.code)
     return false
   }
-}
-
-// ─── replaceUserDoc — full replace (NO merge) ─────────────────────────────────
-/**
- * Replace an entire Firestore doc without merge.
- * REQUIRED for documents like 'groups' and 'bag' where keys can be deleted
- * (merge:true would silently resurrect deleted group keys).
- */
-export async function replaceUserDoc(uid, docName, data) {
-  if (!uid || !db) return false
-  const payload = { ...data, updatedAt: serverTimestamp() }
-  _cache[docName] = payload
-  try {
-    await setDoc(docRef(uid, docName), payload)  // no { merge } = full replace
-    return true
-  } catch (e) {
-    console.error(`[ClearMyMind] replaceUserDoc(${docName}) failed:`, e.code, e.message)
-    return false
-  }
-}
-
-// ─── fetchAllUserDataWithErrors — like fetchAllUserData but also returns error map ─
-/**
- * Same as fetchAllUserData but also returns a `fetchErrors` map
- * so callers can distinguish between docs that legitimately don't exist (null, no error)
- * vs docs that failed to fetch due to auth/permission issues (null + fetchErrors[docName]=true).
- * This prevents second-device fresh login from falsely detecting an "new user".
- */
-export async function fetchAllUserDataWithErrors(uid) {
-  if (!db) return { data: {}, fetchErrors: {} }
-  const results = {}
-  const fetchErrors = {}
-  await Promise.all(
-    USER_DOCS.map(async (docName) => {
-      try {
-        const snap = await getDoc(docRef(uid, docName))
-        results[docName] = snap.exists() ? snap.data() : null
-      } catch (netErr) {
-        console.warn(`[CMM] fetch(${docName}): network FAILED (${netErr.code}) — trying IndexedDB cache`)
-        try {
-          const cached = await getDocFromCache(docRef(uid, docName))
-          results[docName] = cached.exists() ? cached.data() : null
-        } catch (cacheErr) {
-          console.error(`[CMM] fetch(${docName}): BOTH network AND cache failed:`, cacheErr.code)
-          results[docName] = null
-          fetchErrors[docName] = true  // mark as error (not "doc doesn't exist")
-        }
-      }
-    })
-  )
-  _cache = results
-  return { data: results, fetchErrors }
 }
 
 // ─── subscribeToUserData — real-time cross-device sync ───────────────────────
-/**
- * Open onSnapshot listeners for all 6 user docs.
- * Fires onUpdate(docName, data) ONLY for server-confirmed (fromCache=false) changes:
- *   hasPendingWrites = true  → local write echoing back     → SKIP
- *   fromCache = true         → stale IndexedDB echo mid-op  → SKIP
- *   fromCache = false        → remote device / server ack   → CALL onUpdate
- *
- * The caller (useFirestoreData) guards initCompleteRef so that our own
- * seed writes for brand-new users don't bounce back and wipe state.
- *
- * Returns an unsubscribe function.
- */
-export function subscribeToUserData(uid, onUpdate, onError) {
+// Only server-confirmed snapshots are forwarded: local writes echoing back
+// (hasPendingWrites) would otherwise clobber newer optimistic state.
+export function subscribeToUserData(uid, onUpdate) {
   if (!db) return () => {}
-
-  const unsubs = USER_DOCS.map((docName) => {
-    return onSnapshot(
+  const unsubs = USER_DOCS.map((docName) =>
+    onSnapshot(
       docRef(uid, docName),
-      { includeMetadataChanges: true },
       (snap) => {
-        // Skip our own local optimistic writes echoing back — they would
-        // overwrite state we already applied synchronously.
-        if (snap.metadata.hasPendingWrites) return
-        if (!snap.exists()) return   // doc not yet created — skip
-
-        // Skip cache snapshots during live operation. The initial boot
-        // already handles IndexedDB via getDocFromCache(). A fromCache=true
-        // snapshot fired mid-session is stale local state that would revert
-        // optimistic deletes/removes before Firestore confirms the write.
-        if (snap.metadata.fromCache) return
-
-        const data = snap.data()
-        _cache[docName] = data       // keep cache fresh
-        onUpdate(docName, data)
+        if (snap.metadata.hasPendingWrites || snap.metadata.fromCache) return
+        onUpdate(docName, snap.exists() ? snap.data() : null)
       },
-      (err) => {
-        console.error(`[ClearMyMind] onSnapshot(${docName}) error:`, err.code, err.message)
-        onError?.(docName, err)
-      }
-    )
-  })
-
-  _unsubs = unsubs
+      (err) => console.error(`[ClearMyMind] listen(${docName}) error:`, err.code),
+    ),
+  )
   return () => unsubs.forEach((u) => u())
 }
 
-// ─── stopListening — tear down all listeners on logout ───────────────────────
-/**
- * Unsubscribes all active Firestore listeners and clears the cache.
- * Call this when the user logs out to prevent cross-user data leaks.
- * Mirrors EveryDay's stopListening().
- */
-export function stopListening() {
-  _unsubs.forEach((u) => u())
-  _unsubs = []
-  _cache  = {}
+// ─── loadLegacyData — v1 Bag + Memory Sheets, for one-time migration ─────────
+export async function loadLegacyData(uid) {
+  const [bagSnap, memSnap] = await Promise.all([
+    getDoc(docRef(uid, 'bag')),
+    getDocs(collection(db, 'users', uid, 'memory')),
+  ])
+  const bag = bagSnap.exists() && Array.isArray(bagSnap.data().bag) ? bagSnap.data().bag : []
+  const memorySheets = memSnap.docs.map((d) => ({
+    name:  d.data().name,
+    names: Array.isArray(d.data().names) ? d.data().names : [],
+  }))
+  return { bag, memorySheets }
 }
 
-// ─── deleteAllUserData — wipe all docs (account deletion) ───────────────────
-/**
- * Permanently deletes all 6 Firestore documents for a user AND all Memory
- * sub-collection documents (sheets + trash).
- * Called from SettingsPanel when the user requests account deletion.
- */
+// ─── deleteAllUserData — permanently remove every ClearMyMind document ──────
 export async function deleteAllUserData(uid) {
-  if (!db) return
+  if (!uid || !db) return
+  const colSnaps = await Promise.all(
+    LEGACY_COLLECTIONS.map((c) => getDocs(collection(db, 'users', uid, c))),
+  )
   await Promise.all([
-    ...USER_DOCS.map((docName) => deleteDoc(docRef(uid, docName))),
-    deleteAllMemoryData(uid),   // also wipe memory/ and memoryTrash/ sub-collections
+    ...[...USER_DOCS, ...LEGACY_DOCS].map((d) => deleteDoc(docRef(uid, d))),
+    ...colSnaps.flatMap((s) => s.docs.map((d) => deleteDoc(d.ref))),
+    // The profile doc may be shared with other PASSI apps — only drop our field.
+    updateDoc(docRef(uid, 'profile'), { noclear: deleteField() }).catch(() => {}),
   ])
-  _cache = {}
 }

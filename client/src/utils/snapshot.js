@@ -1,17 +1,19 @@
-// ─── ClearMyMind Rich Snapshot ────────────────────────────────────────────────
-// Supports two formats:
+// ─── ClearMyMind Snapshot ─────────────────────────────────────────────────────
+// A human-readable text export with an embedded base64 JSON payload for a
+// perfect round-trip. Paste it back into Load to restore.
 //
-//  v1 (legacy, single-sheet):  { names, tags, groups, bag }
-//  v2 (multi-sheet):           { _version: 2, sheets, namesBySheet, tagsBySheet, groups, bag }
+//  v2 payload:  { _version: 2, sheets, namesBySheet, tagsBySheet }
+//  Older payloads (v1 single-sheet, or v2 with groups/bag) are still accepted:
+//  groups are ignored and bag items are imported into a "Bag" sheet.
 //
-// buildFullSnapshot()  → always produces v2
-// buildSnapshot()      → kept for backward compat (produces v1, single-sheet only)
-// isSnapshot()         → detects either format by header
-// parseSnapshot()      → returns v2 shape; upgrades v1 to v2 automatically
+// Snapshot text is untrusted input — parseSnapshot() validates every field.
+
+import { isValidSheetId, cleanName, cleanSheetName, canTag, TAG_KEYS, MAX_SHEETS, MAX_NAMES_PER_SHEET } from './validate.js'
 
 const HEADER   = '═══ ClearMyMind Snapshot'
 const DATA_TAG = '[cmm:'
 const DATA_END = ']'
+const MAX_SNAPSHOT_CHARS = 2_000_000
 
 const TAG_LABELS = {
   red: 'Red', orange: 'Orange', yellow: 'Yellow',
@@ -19,216 +21,136 @@ const TAG_LABELS = {
 }
 
 const LABEL_TO_KEY = Object.fromEntries(
-  Object.entries(TAG_LABELS).flatMap(([k, v]) => [
-    [v.toLowerCase(), k], [k.toLowerCase(), k],
-  ])
+  Object.entries(TAG_LABELS).flatMap(([k, v]) => [[v.toLowerCase(), k], [k, k]]),
 )
+
+function toBase64(str) {
+  const bytes = new TextEncoder().encode(str)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin)
+}
+
+function fromBase64(b64) {
+  const bin   = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new TextDecoder().decode(bytes)
+}
 
 // ── Detect ────────────────────────────────────────────────────────────────────
 export function isSnapshot(text) {
-  return typeof text === 'string' && text.trimStart().startsWith(HEADER)
+  return typeof text === 'string' && text.length <= MAX_SNAPSHOT_CHARS && text.trimStart().startsWith(HEADER)
 }
 
-// ── Build (v2 — all sheets) ───────────────────────────────────────────────────
-/**
- * Build a full multi-sheet snapshot.
- *
- * @param {Array}  sheets       – [{ id, name }, …]
- * @param {Object} namesBySheet – { [sheetId]: string[] }
- * @param {Object} tagsBySheet  – { [sheetId]: { [name]: colorKey } }
- * @param {Object} groups       – { [id]: { name, members } }
- * @param {Array}  bag          – string[]
- */
-export function buildFullSnapshot(sheets, namesBySheet, tagsBySheet, groups, bag) {
+// ── Build ─────────────────────────────────────────────────────────────────────
+export function buildFullSnapshot(sheets, namesBySheet, tagsBySheet) {
   const now     = new Date()
   const dateStr = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-
-  const totalNames = sheets.reduce((s, sh) => s + (namesBySheet[sh.id]?.length ?? 0), 0)
+  const total   = sheets.reduce((s, sh) => s + (namesBySheet[sh.id]?.length ?? 0), 0)
 
   const L = []
   L.push(`${HEADER} — ${dateStr}, ${timeStr} ═══`)
-  L.push(`v2 · ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''} · ${totalNames} name${totalNames !== 1 ? 's' : ''} total`)
+  L.push(`v2 · ${sheets.length} sheet${sheets.length !== 1 ? 's' : ''} · ${total} name${total !== 1 ? 's' : ''} total`)
   L.push('')
 
-  // ── Per-sheet sections ──────────────────────────────────────────────────────
   sheets.forEach((sheet) => {
     const names = namesBySheet[sheet.id] ?? []
     const tags  = tagsBySheet[sheet.id]  ?? {}
-
     L.push(`── SHEET: ${sheet.name} ──`)
-    L.push(`   id: ${sheet.id}`)
-
     L.push(`   NAMES (${names.length})`)
-    names.length ? names.forEach(n => L.push(`     ${n}`)) : L.push('     (none)')
-
+    names.length ? names.forEach((n) => L.push(`     ${n}`)) : L.push('     (none)')
     const tArr = Object.entries(tags)
     L.push(`   COLORS (${tArr.length})`)
     tArr.length
       ? tArr.forEach(([name, key]) => L.push(`     ${name} → ${TAG_LABELS[key] ?? key}`))
       : L.push('     (none)')
-
     L.push('')
   })
 
-  // ── Groups ─────────────────────────────────────────────────────────────────
-  const gArr = Object.values(groups)
-  L.push(`── GROUPS (${gArr.length}) ──`)
-  if (!gArr.length) {
-    L.push('  (none)')
-  } else {
-    gArr.forEach(g => {
-      L.push(`  [${g.name}]`)
-      g.members.length ? g.members.forEach(m => L.push(`    • ${m}`)) : L.push('    (empty)')
-    })
+  const payload = {
+    _version: 2,
+    sheets: sheets.map(({ id, name }) => ({ id, name })),
+    namesBySheet: Object.fromEntries(sheets.map((s) => [s.id, namesBySheet[s.id] ?? []])),
+    tagsBySheet:  Object.fromEntries(sheets.map((s) => [s.id, tagsBySheet[s.id] ?? {}])),
   }
-  L.push('')
-
-  // ── Bag ────────────────────────────────────────────────────────────────────
-  L.push(`── BAG (${bag.length}) ──`)
-  bag.length ? bag.forEach(n => L.push(`  • ${n}`)) : L.push('  (none)')
-
-  // ── Embedded JSON (perfect round-trip) ─────────────────────────────────────
-  const payload = { _version: 2, sheets, namesBySheet, tagsBySheet, groups, bag }
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))))
-  L.push('')
-  L.push(`${DATA_TAG}${encoded}${DATA_END}`)
-
+  L.push(`${DATA_TAG}${toBase64(JSON.stringify(payload))}${DATA_END}`)
   return L.join('\n')
 }
 
-// ── Build (v1 — single-sheet legacy, kept for compat) ─────────────────────────
-export function buildSnapshot(names, tags, groups, bag) {
-  const now     = new Date()
-  const dateStr = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-  const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+// ── Sanitise any decoded payload into the v2 shape ───────────────────────────
+function sanitize(raw) {
+  const sheets = []
+  const namesBySheet = {}
+  const tagsBySheet  = {}
 
-  const L = []
-  L.push(`${HEADER} — ${dateStr}, ${timeStr} ═══`)
-  L.push('')
-
-  L.push(`── NAMES (${names.length}) ──`)
-  names.length ? names.forEach(n => L.push(`  ${n}`)) : L.push('  (none)')
-  L.push('')
-
-  const gArr = Object.values(groups)
-  L.push(`── GROUPS (${gArr.length}) ──`)
-  if (!gArr.length) {
-    L.push('  (none)')
-  } else {
-    gArr.forEach(g => {
-      L.push(`  [${g.name}]`)
-      g.members.length ? g.members.forEach(m => L.push(`    • ${m}`)) : L.push('    (empty)')
-    })
+  const addSheet = (id, name, names, tags) => {
+    if (sheets.length >= MAX_SHEETS || !isValidSheetId(id) || sheets.some((s) => s.id === id)) return
+    sheets.push({ id, name: cleanSheetName(name) || 'Imported' })
+    namesBySheet[id] = (Array.isArray(names) ? names : [])
+      .map(cleanName).filter(Boolean).slice(0, MAX_NAMES_PER_SHEET)
+    tagsBySheet[id] = Object.fromEntries(
+      Object.entries(tags && typeof tags === 'object' ? tags : {})
+        .filter(([n, c]) => canTag(n) && TAG_KEYS.includes(c)),
+    )
   }
-  L.push('')
 
-  L.push(`── BAG (${bag.length}) ──`)
-  bag.length ? bag.forEach(n => L.push(`  • ${n}`)) : L.push('  (none)')
-  L.push('')
+  if (raw && raw._version === 2 && Array.isArray(raw.sheets)) {
+    for (const s of raw.sheets) {
+      if (!s || typeof s !== 'object') continue
+      addSheet(s.id, s.name, raw.namesBySheet?.[s.id], raw.tagsBySheet?.[s.id])
+    }
+  } else if (raw && typeof raw === 'object') {
+    addSheet('sheet-1', 'Sheet 1', raw.names, raw.tags)   // v1: single sheet
+  }
 
-  const tArr = Object.entries(tags)
-  L.push(`── COLORS (${tArr.length}) ──`)
-  tArr.length
-    ? tArr.forEach(([name, key]) => L.push(`  ${name} → ${TAG_LABELS[key] ?? key}`))
-    : L.push('  (none)')
+  // Legacy bag → its own sheet
+  if (Array.isArray(raw?.bag) && raw.bag.length) addSheet('sheet-bag', 'Bag', raw.bag, {})
 
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ names, tags, groups, bag }))))
-  L.push('')
-  L.push(`${DATA_TAG}${encoded}${DATA_END}`)
-
-  return L.join('\n')
+  return { _version: 2, sheets, namesBySheet, tagsBySheet }
 }
 
-// ── Parse → always returns v2 shape ──────────────────────────────────────────
-/**
- * Returns:
- *   {
- *     _version: 2,
- *     sheets: [{ id, name }],
- *     namesBySheet: { [sheetId]: string[] },
- *     tagsBySheet:  { [sheetId]: { [name]: colorKey } },
- *     groups: { [id]: { name, members } },
- *     bag: string[],
- *   }
- *
- * v1 snapshots are automatically promoted: all names/tags go into the first sheet.
- */
+// ── Parse → always returns a validated v2 shape ──────────────────────────────
 export function parseSnapshot(text) {
-  // Try embedded JSON first (perfect round-trip)
+  if (typeof text !== 'string' || text.length > MAX_SNAPSHOT_CHARS) return sanitize(null)
   const si = text.indexOf(DATA_TAG)
   if (si !== -1) {
     const ei = text.indexOf(DATA_END, si + DATA_TAG.length)
     if (ei !== -1) {
       try {
-        const d = JSON.parse(decodeURIComponent(escape(atob(text.slice(si + DATA_TAG.length, ei)))))
-        if (d._version === 2) {
-          // Native v2 — validate shape and return
-          return {
-            _version:    2,
-            sheets:      Array.isArray(d.sheets)              ? d.sheets      : [{ id: 'sheet-1', name: 'Sheet 1' }],
-            namesBySheet: d.namesBySheet && typeof d.namesBySheet === 'object' ? d.namesBySheet : {},
-            tagsBySheet:  d.tagsBySheet  && typeof d.tagsBySheet  === 'object' ? d.tagsBySheet  : {},
-            groups:       d.groups       && typeof d.groups       === 'object' ? d.groups       : {},
-            bag:          Array.isArray(d.bag)                ? d.bag         : [],
-          }
-        }
-        // v1 JSON — promote to v2 (all data into first sheet)
-        const sheetId = 'sheet-1'
-        return {
-          _version:    2,
-          sheets:      [{ id: sheetId, name: 'Sheet 1' }],
-          namesBySheet: { [sheetId]: Array.isArray(d.names) ? d.names : [] },
-          tagsBySheet:  { [sheetId]: d.tags && typeof d.tags === 'object' ? d.tags : {} },
-          groups:       d.groups && typeof d.groups === 'object' ? d.groups : {},
-          bag:          Array.isArray(d.bag) ? d.bag : [],
-        }
-      } catch { /* fall through to text parser */ }
+        return sanitize(JSON.parse(fromBase64(text.slice(si + DATA_TAG.length, ei))))
+      } catch { /* fall through to the text parser */ }
     }
   }
-  // Human-readable text fallback (promotes to v2 as single sheet)
-  return parseTextToV2(text)
+  return sanitize(parseText(text))
 }
 
-// ── Human-readable text fallback → v2 ────────────────────────────────────────
-function parseTextToV2(text) {
-  const sheetId = 'sheet-1'
-  const names   = []
-  const tags    = {}
-  const groups  = {}
-  const bag     = []
-  let section = null, curGid = null, gi = 0
+// ── Human-readable fallback (single sheet: names, colours, bag) ──────────────
+function parseText(text) {
+  const names = []
+  const tags  = {}
+  const bag   = []
+  let section = null
 
   for (const raw of text.split('\n')) {
-    const line = raw.trimEnd()
-    const t    = line.trim()
-    if      (line.includes('── NAMES'))  { section = 'names';  curGid = null; continue }
-    else if (line.includes('── GROUPS')) { section = 'groups'; curGid = null; continue }
-    else if (line.includes('── BAG'))    { section = 'bag';    curGid = null; continue }
-    else if (line.includes('── COLORS')) { section = 'colors'; curGid = null; continue }
-    else if (line.startsWith('═══') || line.startsWith(DATA_TAG)) continue
-    if (!t || t === '(none)' || t === '(empty)') continue
+    const t = raw.trim()
+    if      (/── (SHEET:|NAMES)/.test(raw) || /^NAMES \(/.test(t)) { section = 'names';  continue }
+    else if (raw.includes('── GROUPS'))                            { section = 'groups'; continue }
+    else if (raw.includes('── BAG'))                               { section = 'bag';    continue }
+    else if (raw.includes('── COLORS') || /^COLORS \(/.test(t))    { section = 'colors'; continue }
+    if (!t || t.startsWith('═══') || t.startsWith(DATA_TAG) || t.startsWith('id: ') || t === '(none)' || t === '(empty)') continue
 
     if (section === 'names') {
       names.push(t)
-    } else if (section === 'groups') {
-      const gm = t.match(/^\[(.+)\]$/)
-      if (gm) { curGid = `g-i-${gi++}`; groups[curGid] = { name: gm[1], members: [] } }
-      else if (curGid) { const mm = t.match(/^•\s+(.+)$/); if (mm) groups[curGid].members.push(mm[1]) }
     } else if (section === 'bag') {
-      const mm = t.match(/^•\s+(.+)$/); if (mm) bag.push(mm[1])
+      const m = t.match(/^•\s+(.+)$/)
+      if (m) bag.push(m[1])
     } else if (section === 'colors') {
-      const mm = t.match(/^(.+?)\s+→\s+(.+)$/)
-      if (mm) { const k = LABEL_TO_KEY[mm[2].trim().toLowerCase()]; if (k) tags[mm[1].trim()] = k }
+      const m = t.match(/^(.+?)\s+→\s+(.+)$/)
+      const k = m && LABEL_TO_KEY[m[2].trim().toLowerCase()]
+      if (k) tags[m[1].trim()] = k
     }
   }
-
-  return {
-    _version:    2,
-    sheets:      [{ id: sheetId, name: 'Sheet 1' }],
-    namesBySheet: { [sheetId]: names },
-    tagsBySheet:  { [sheetId]: tags },
-    groups,
-    bag,
-  }
+  return { names, tags, bag }
 }
