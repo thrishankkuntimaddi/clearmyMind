@@ -2,13 +2,12 @@
 // A human-readable text export with an embedded base64 JSON payload for a
 // perfect round-trip. Paste it back into Load to restore.
 //
-//  v2 payload:  { _version: 2, sheets, namesBySheet, tagsBySheet }
-//  Older payloads (v1 single-sheet, or v2 with groups/bag) are still accepted:
-//  groups are ignored and bag items are imported into a "Bag" sheet.
+//  v2 payload:  { _version: 2, sheets, namesBySheet, tagsBySheet, groups, bag }
+//  v1 payload:  { names, tags, groups, bag }   (single sheet — still accepted)
 //
 // Snapshot text is untrusted input — parseSnapshot() validates every field.
 
-import { isValidSheetId, cleanName, cleanSheetName, canTag, TAG_KEYS, MAX_SHEETS, MAX_NAMES_PER_SHEET } from './validate.js'
+import { isValidSheetId, cleanName, cleanSheetName, canTag, TAG_KEYS, MAX_SHEETS, MAX_NAMES_PER_SHEET, MAX_GROUPS } from './validate.js'
 
 const HEADER   = '═══ ClearMyMind Snapshot'
 const DATA_TAG = '[cmm:'
@@ -44,7 +43,7 @@ export function isSnapshot(text) {
 }
 
 // ── Build ─────────────────────────────────────────────────────────────────────
-export function buildFullSnapshot(sheets, namesBySheet, tagsBySheet) {
+export function buildFullSnapshot(sheets, namesBySheet, tagsBySheet, groups = {}, bag = []) {
   const now     = new Date()
   const dateStr = now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -69,11 +68,25 @@ export function buildFullSnapshot(sheets, namesBySheet, tagsBySheet) {
     L.push('')
   })
 
+  const gArr = Object.values(groups)
+  L.push(`── GROUPS (${gArr.length}) ──`)
+  if (!gArr.length) L.push('  (none)')
+  gArr.forEach((g) => {
+    L.push(`  [${g.name}]`)
+    g.members.length ? g.members.forEach((m) => L.push(`    • ${m}`)) : L.push('    (empty)')
+  })
+  L.push('')
+  L.push(`── BAG (${bag.length}) ──`)
+  bag.length ? bag.forEach((n) => L.push(`  • ${n}`)) : L.push('  (none)')
+  L.push('')
+
   const payload = {
     _version: 2,
     sheets: sheets.map(({ id, name }) => ({ id, name })),
     namesBySheet: Object.fromEntries(sheets.map((s) => [s.id, namesBySheet[s.id] ?? []])),
     tagsBySheet:  Object.fromEntries(sheets.map((s) => [s.id, tagsBySheet[s.id] ?? {}])),
+    groups,
+    bag,
   }
   L.push(`${DATA_TAG}${toBase64(JSON.stringify(payload))}${DATA_END}`)
   return L.join('\n')
@@ -105,10 +118,19 @@ function sanitize(raw) {
     addSheet('sheet-1', 'Sheet 1', raw.names, raw.tags)   // v1: single sheet
   }
 
-  // Legacy bag → its own sheet
-  if (Array.isArray(raw?.bag) && raw.bag.length) addSheet('sheet-bag', 'Bag', raw.bag, {})
+  const groups = {}
+  const srcGroups = raw?.groups && typeof raw.groups === 'object' ? Object.values(raw.groups) : []
+  srcGroups.slice(0, MAX_GROUPS).forEach((g, i) => {
+    const name = cleanSheetName(g?.name)
+    if (!name) return
+    const members = (Array.isArray(g.members) ? g.members : [])
+      .map(cleanName).filter(Boolean).slice(0, MAX_NAMES_PER_SHEET)
+    groups[`g-i-${i}`] = { name, members: [...new Set(members)] }
+  })
+  const bag = [...new Set((Array.isArray(raw?.bag) ? raw.bag : []).map(cleanName).filter(Boolean))]
+    .slice(0, MAX_NAMES_PER_SHEET)
 
-  return { _version: 2, sheets, namesBySheet, tagsBySheet }
+  return { _version: 2, sheets, namesBySheet, tagsBySheet, groups, bag }
 }
 
 // ── Parse → always returns a validated v2 shape ──────────────────────────────
@@ -126,12 +148,13 @@ export function parseSnapshot(text) {
   return sanitize(parseText(text))
 }
 
-// ── Human-readable fallback (single sheet: names, colours, bag) ──────────────
+// ── Human-readable fallback (single sheet: names, colours, groups, bag) ──────────────
 function parseText(text) {
-  const names = []
-  const tags  = {}
-  const bag   = []
-  let section = null
+  const names  = []
+  const tags   = {}
+  const bag    = []
+  const groups = {}
+  let section = null, curGid = null, gi = 0
 
   for (const raw of text.split('\n')) {
     const t = raw.trim()
@@ -143,6 +166,10 @@ function parseText(text) {
 
     if (section === 'names') {
       names.push(t)
+    } else if (section === 'groups') {
+      const gm = t.match(/^\[(.+)\]$/)
+      if (gm) { curGid = `g${gi++}`; groups[curGid] = { name: gm[1], members: [] } }
+      else if (curGid) { const mm = t.match(/^•\s+(.+)$/); if (mm) groups[curGid].members.push(mm[1]) }
     } else if (section === 'bag') {
       const m = t.match(/^•\s+(.+)$/)
       if (m) bag.push(m[1])
@@ -152,5 +179,5 @@ function parseText(text) {
       if (k) tags[m[1].trim()] = k
     }
   }
-  return { names, tags, bag }
+  return { names, tags, groups, bag }
 }

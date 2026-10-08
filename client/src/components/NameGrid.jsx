@@ -19,7 +19,7 @@ function useIsMobile() {
   return mobile
 }
 
-export default function NameGrid({ names, tags, searchHighlighted, firstMatchName = null, onRemove, onEdit, onTagSet, onMobileLongPress }) {
+export default function NameGrid({ names, tags, randomPicks = new Set(), highlightedNames = new Set(), searchHighlighted = new Set(), firstMatchName = null, memoryNameSet = new Set(), memoryIconMap = new Map(), onRemove, onEdit, onTagSet, onMobileLongPress }) {
   const isMobile = useIsMobile()
 
   if (isMobile) {
@@ -46,8 +46,12 @@ export default function NameGrid({ names, tags, searchHighlighted, firstMatchNam
                 index={i + 1}
                 name={name}
                 tag={tags[name] ?? null}
+                picked={randomPicks.has(i + 1)}
+                highlighted={highlightedNames.has(name)}
                 searchMatch={searchHighlighted.has(name)}
                 isFirstMatch={firstMatchName === name}
+                inMemory={memoryNameSet.has(name.toLowerCase())}
+                memoryIcon={memoryIconMap.get(name.toLowerCase())}
                 onRemove={onRemove}
                 onEdit={onEdit}
                 onTagSet={onTagSet}
@@ -89,8 +93,12 @@ export default function NameGrid({ names, tags, searchHighlighted, firstMatchNam
                   index={globalIdx}
                   name={name}
                   tag={tags[name] ?? null}
+                  picked={randomPicks.has(globalIdx)}
+                  highlighted={highlightedNames.has(name)}
                   searchMatch={searchHighlighted.has(name)}
                   isFirstMatch={firstMatchName === name}
+                  inMemory={memoryNameSet.has(name.toLowerCase())}
+                  memoryIcon={memoryIconMap.get(name.toLowerCase())}
                   onRemove={onRemove}
                   onEdit={onEdit}
                   onTagSet={onTagSet}

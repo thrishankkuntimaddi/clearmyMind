@@ -113,6 +113,7 @@ export function useFirebaseAuth() {
   // ─── Sign out ─────────────────────────────────────────────────────────────
   const signOutUser = useCallback(async () => {
     clearLocalPrefs()
+    clearLockState()
     await signOut()
   }, [])
 
@@ -132,6 +133,7 @@ export function useFirebaseAuth() {
       if (!ok) return { success: false, error: 'Could not delete your data. Nothing was removed from your account.' }
       await fbDeleteAccount(u)
       clearLocalPrefs()
+      clearLockState()
       setUser(null)
       setAuthState('unauthenticated')
       return { success: true }
@@ -146,6 +148,15 @@ export function useFirebaseAuth() {
     resendVerification, checkVerified,
     signOutUser, deleteAccount,
   }
+}
+
+// Device-local App Lock state is per person: clear it so the next account on
+// this device starts without someone else's lock.
+export function clearLockState() {
+  ;[
+    'clearmind_password_hash', 'clearmind_cred_id', 'clearmind_nolock',
+    'clearmind_applock_v2', 'clearmind_lock_failures',
+  ].forEach((k) => localStorage.removeItem(k))
 }
 
 // ─── Firebase error code → human-readable message ─────────────────────────────

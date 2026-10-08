@@ -5,6 +5,7 @@ export const MAX_NAME_LEN        = 100
 export const MAX_SHEET_NAME_LEN  = 40
 export const MAX_SHEETS          = 30
 export const MAX_NAMES_PER_SHEET = 500
+export const MAX_GROUPS          = 50
 
 const SHEET_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 

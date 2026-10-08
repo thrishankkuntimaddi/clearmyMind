@@ -37,3 +37,7 @@ server/.env.local
 *.njsproj
 *.sln
 *.sw?
+
+# ── Server runtime data (per-user) ───────────────────────────────────────────
+server/src/db/data.json
+server/src/db/data.json.tmp

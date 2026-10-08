@@ -1,17 +1,15 @@
 /**
- * db.js — ClearMyMind Firestore Data Layer
- * ==========================================
- * The ONLY file in the codebase that imports firebase/firestore.
+ * db.js — ClearMyMind Firestore Data Layer (session data)
+ * =========================================================
+ * Memory Sheets live in memoryDb.js; everything else goes through here.
  *
- * DATA MODEL — 3 documents per user:
- *   users/{uid}/data/sheets  — { sheets: [{ id, name }], schema: 2 }
- *   users/{uid}/data/names   — { [sheetId]: string[] }
- *   users/{uid}/data/tags    — { [sheetId]: { [name]: colorKey } }
- *
- * LEGACY (v1) — read once for migration, removed by deleteAllUserData():
- *   users/{uid}/data/groups, users/{uid}/data/bag,
- *   users/{uid}/memory/*, users/{uid}/memoryTrash/*,
- *   users/{uid}/data/profile.noclear
+ * DATA MODEL — 6 documents per user:
+ *   users/{uid}/data/sheets   — { sheets: [{ id, name }], schema }
+ *   users/{uid}/data/names    — { [sheetId]: string[] }
+ *   users/{uid}/data/tags     — { [sheetId]: { [name]: colorKey } }
+ *   users/{uid}/data/groups   — { groups: { [id]: { name, members } } }
+ *   users/{uid}/data/bag      — { bag: string[] }
+ *   users/{uid}/data/profile  — { noclear }   (doc may be shared with other PASSI apps)
  */
 
 import {
@@ -28,10 +26,9 @@ import {
   FieldPath,
 } from 'firebase/firestore'
 import { db, dbReady } from './firebase.js'
+import { deleteAllMemoryData } from './memoryDb.js'
 
-export const USER_DOCS = ['sheets', 'names', 'tags']
-const LEGACY_DOCS = ['groups', 'bag']
-const LEGACY_COLLECTIONS = ['memory', 'memoryTrash']
+export const USER_DOCS = ['sheets', 'names', 'tags', 'groups', 'bag', 'profile']
 
 function docRef(uid, docName) {
   return doc(db, 'users', uid, 'data', docName)
@@ -53,8 +50,8 @@ export async function loadUserData(uid) {
 
 // ─── writeFields — replace specific top-level fields of one doc ──────────────
 // Uses mergeFields so each listed field is REPLACED, not deep-merged. A plain
-// { merge: true } would deep-merge nested maps, which silently kept removed
-// tag colours alive in Firestore.
+// { merge: true } deep-merges nested maps, which silently kept removed tag
+// colours (and deleted groups) alive in Firestore.
 export async function writeFields(uid, docName, fields) {
   if (!uid || !db) return false
   const keys = Object.keys(fields)
@@ -90,30 +87,23 @@ export function subscribeToUserData(uid, onUpdate) {
   return () => unsubs.forEach((u) => u())
 }
 
-// ─── loadLegacyData — v1 Bag + Memory Sheets, for one-time migration ─────────
-export async function loadLegacyData(uid) {
-  const [bagSnap, memSnap] = await Promise.all([
-    getDoc(docRef(uid, 'bag')),
-    getDocs(collection(db, 'users', uid, 'memory')),
-  ])
-  const bag = bagSnap.exists() && Array.isArray(bagSnap.data().bag) ? bagSnap.data().bag : []
-  const memorySheets = memSnap.docs.map((d) => ({
-    name:  d.data().name,
-    names: Array.isArray(d.data().names) ? d.data().names : [],
+// ─── loadMemoryNames — every name in every Memory Sheet (lower-cased) ────────
+export async function loadMemoryNames(uid) {
+  const snap = await getDocs(collection(db, 'users', uid, 'memory'))
+  const out = new Set()
+  snap.forEach((d) => (Array.isArray(d.data().names) ? d.data().names : []).forEach((n) => {
+    if (typeof n === 'string') out.add(n.toLowerCase())
   }))
-  return { bag, memorySheets }
+  return out
 }
 
 // ─── deleteAllUserData — permanently remove every ClearMyMind document ──────
 export async function deleteAllUserData(uid) {
   if (!uid || !db) return
-  const colSnaps = await Promise.all(
-    LEGACY_COLLECTIONS.map((c) => getDocs(collection(db, 'users', uid, c))),
-  )
   await Promise.all([
-    ...[...USER_DOCS, ...LEGACY_DOCS].map((d) => deleteDoc(docRef(uid, d))),
-    ...colSnaps.flatMap((s) => s.docs.map((d) => deleteDoc(d.ref))),
+    ...USER_DOCS.filter((d) => d !== 'profile').map((d) => deleteDoc(docRef(uid, d))),
     // The profile doc may be shared with other PASSI apps — only drop our field.
     updateDoc(docRef(uid, 'profile'), { noclear: deleteField() }).catch(() => {}),
+    deleteAllMemoryData(uid),
   ])
 }

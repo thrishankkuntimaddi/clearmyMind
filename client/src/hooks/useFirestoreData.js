@@ -1,15 +1,15 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   loadUserData, writeFields, subscribeToUserData,
-  loadLegacyData, deleteAllUserData, REMOVE,
+  loadMemoryNames, deleteAllUserData, REMOVE,
 } from '../lib/db.js'
 import {
   cleanName, cleanSheetName, isValidSheetId, sortNames, mergeNames,
-  canTag, MAX_SHEETS, MAX_NAMES_PER_SHEET, TAG_KEYS,
+  canTag, MAX_SHEETS, MAX_NAMES_PER_SHEET, MAX_GROUPS, TAG_KEYS,
 } from '../utils/validate.js'
 
 const ACTIVE_KEY  = 'cmm_active_sheet'   // device-local: which sheet is open
-const SAVE_ERROR  = '⚠️ Not saved — check your connection and try again.'
+const SAVE_ERROR  = '⚠️ Data not saved — check your connection and try again.'
 const LOAD_ERROR  = '⚠️ Could not load your data. Check your connection and reload.'
 const EMPTY_TAGS  = Object.freeze({})
 
@@ -18,7 +18,10 @@ function defaultSheets() {
 }
 
 function initialState() {
-  return { sheets: defaultSheets(), activeSheetId: 'sheet-1', namesBySheet: {}, tagsBySheet: {} }
+  return {
+    sheets: defaultSheets(), activeSheetId: 'sheet-1',
+    namesBySheet: {}, tagsBySheet: {}, groups: {}, bag: [], noClear: true,
+  }
 }
 
 // ─── Defensive readers: accept only well-formed data from Firestore ──────────
@@ -52,6 +55,24 @@ function readTags(data) {
   return out
 }
 
+function readGroups(data) {
+  const out = {}
+  const src = data?.groups && typeof data.groups === 'object' ? data.groups : {}
+  for (const [id, g] of Object.entries(src)) {
+    if (!isValidSheetId(id) || !g || typeof g.name !== 'string') continue
+    out[id] = { name: g.name, members: Array.isArray(g.members) ? g.members.filter((m) => typeof m === 'string') : [] }
+  }
+  return out
+}
+
+function readBag(data) {
+  return Array.isArray(data?.bag) ? data.bag.filter((n) => typeof n === 'string') : []
+}
+
+function readNoClear(data) {
+  return typeof data?.noclear === 'boolean' ? data.noclear : true
+}
+
 function readActive() {
   try { return localStorage.getItem(ACTIVE_KEY) } catch { return null }
 }
@@ -70,48 +91,43 @@ function uniqueSheetName(base, sheets) {
   return name
 }
 
-// ─── One-time migration from v1 (Bag + Memory Sheets → regular sheets) ───────
-// Legacy documents are left untouched, so nothing is lost if this is rolled back.
-async function migrateLegacy(uid, sheets, namesBySheet) {
-  const { bag, memorySheets } = await loadLegacyData(uid)
-  const nextSheets = [...sheets]
-  const nextNames  = { ...namesBySheet }
-  const added      = {}
-  const stamp      = Date.now().toString(36)
+// ─── Undo the short-lived v2 migration ───────────────────────────────────────
+// One deployed build copied Memory Sheets + Bag into regular sheets with ids
+// "sheet-m…" and stamped `schema: 2`. Remove those copies — but only when every
+// name in them still exists in a Memory Sheet or the Bag, so nothing is lost.
+async function undoMigration(uid, sheets, namesBySheet, tagsBySheet, bag) {
+  const memNames = await loadMemoryNames(uid)
+  const bagNames = new Set(bag.map((n) => n.toLowerCase()))
+  const isCopy = (s) => /^sheet-m[0-9a-z]+$/.test(s.id) &&
+    (namesBySheet[s.id] ?? []).every((n) => memNames.has(n.toLowerCase()) || bagNames.has(n.toLowerCase()))
 
-  const addSheet = (base, list, i) => {
-    if (nextSheets.length >= MAX_SHEETS) return
-    const merged = mergeNames([], list)
-    if (!merged.length) return
-    const id = `sheet-m${stamp}${i}`
-    nextSheets.push({ id, name: uniqueSheetName(base, nextSheets) })
-    nextNames[id] = merged
-    added[id]     = merged
+  const copies = sheets.filter(isCopy)
+  let kept = sheets.filter((s) => !isCopy(s))
+  if (!kept.length) kept = defaultSheets()
+  const names = { ...namesBySheet }
+  const tags  = { ...tagsBySheet }
+  if (copies.length) {
+    copies.forEach((s) => { delete names[s.id]; delete tags[s.id] })
+    const removal = Object.fromEntries(copies.map((s) => [s.id, REMOVE()]))
+    if (!(await writeFields(uid, 'names', removal))) throw new Error('names write failed')
+    await writeFields(uid, 'tags', removal)
   }
-  addSheet('Bag', bag, 0)
-  memorySheets.forEach((m, i) => addSheet(m.name || 'Memory', m.names, i + 1))
-
-  if (Object.keys(added).length && !(await writeFields(uid, 'names', added))) {
-    throw new Error('migration: names write failed')
-  }
-  if (!(await writeFields(uid, 'sheets', { sheets: nextSheets, schema: 2 }))) {
-    throw new Error('migration: sheets write failed')
-  }
-  return { sheets: nextSheets, namesBySheet: nextNames }
+  if (!(await writeFields(uid, 'sheets', { sheets: kept, schema: 3 }))) throw new Error('sheets write failed')
+  return { sheets: kept, namesBySheet: names, tagsBySheet: tags }
 }
 
 // ─── useFirestoreData ─────────────────────────────────────────────────────────
-// Owns all app data. State lives in a ref (S) so callbacks can read the latest
-// values synchronously; commit() mirrors it into React state for rendering.
+// Owns all session data. State lives in a ref (S) so callbacks can read the
+// latest values synchronously; commit() mirrors it into React state.
 export function useFirestoreData(uid) {
   const [status, setStatus] = useState('idle')   // idle | loading | ready | error
-  const [error, setError]   = useState(null)
+  const [writeError, setWriteError] = useState(null)
   const [state, setState]   = useState(initialState)
   const S        = useRef(state)
   const uidRef   = useRef(uid)
   const readyRef = useRef(false)
 
-  const clearError = useCallback(() => setError(null), [])
+  const clearWriteError = useCallback(() => setWriteError(null), [])
 
   const commit = useCallback((patch) => {
     S.current = { ...S.current, ...patch }
@@ -123,18 +139,18 @@ export function useFirestoreData(uid) {
   const save = useCallback(async (docName, fields) => {
     if (!uidRef.current || !readyRef.current) return false
     const ok = await writeFields(uidRef.current, docName, fields)
-    if (!ok) setError(SAVE_ERROR)
+    if (!ok) setWriteError(SAVE_ERROR)
     return ok
   }, [])
 
-  // ─── Boot: reset → load → migrate → subscribe ──────────────────────────────
+  // ─── Boot: reset → load → subscribe ────────────────────────────────────────
   useEffect(() => {
     // Always start from a blank slate so one account's data can never be
     // shown to (or written into) the next account signed in on this device.
     uidRef.current   = uid
     readyRef.current = false
     commit(initialState())
-    setError(null)
+    setWriteError(null)
     if (!uid) { setStatus('idle'); return }
     setStatus('loading')
 
@@ -147,40 +163,47 @@ export function useFirestoreData(uid) {
         data = await loadUserData(uid)
       } catch (e) {
         console.error('[ClearMyMind] load failed:', e.code)
-        if (!cancelled) { setStatus('error'); setError(LOAD_ERROR) }
+        if (!cancelled) { setStatus('error'); setWriteError(LOAD_ERROR) }
         return
       }
       if (cancelled) return
 
       let sheets       = readSheets(data.sheets)
       let namesBySheet = readNames(data.names)
-      const tagsBySheet = readTags(data.tags)
+      let tagsBySheet  = readTags(data.tags)
+      const bag        = readBag(data.bag)
 
-      if ((data.sheets?.schema ?? 0) < 2) {
+      if (data.sheets?.schema === 2) {
         try {
-          ;({ sheets, namesBySheet } = await migrateLegacy(uid, sheets, namesBySheet))
+          ;({ sheets, namesBySheet, tagsBySheet } = await undoMigration(uid, sheets, namesBySheet, tagsBySheet, bag))
         } catch (e) {
-          // Non-fatal: the app works without it and it retries on next load.
-          console.error('[ClearMyMind] migration failed:', e.message ?? e.code)
+          console.error('[ClearMyMind] migration cleanup failed:', e.message ?? e.code)
         }
         if (cancelled) return
       }
 
       const preferred = [readActive(), data.sheets?.activeSheetId]
       const activeSheetId = preferred.find((id) => sheets.some((s) => s.id === id)) ?? sheets[0].id
-      commit({ sheets, activeSheetId, namesBySheet, tagsBySheet })
+      commit({
+        sheets, activeSheetId, namesBySheet, tagsBySheet, bag,
+        groups: readGroups(data.groups), noClear: readNoClear(data.profile),
+      })
       readyRef.current = true
       setStatus('ready')
 
       unsub = subscribeToUserData(uid, (docName, d) => {
-        if (docName === 'sheets') {
-          const list   = readSheets(d)
-          const active = list.some((s) => s.id === S.current.activeSheetId) ? S.current.activeSheetId : list[0].id
-          commit({ sheets: list, activeSheetId: active })
-        } else if (docName === 'names') {
-          commit({ namesBySheet: readNames(d) })
-        } else if (docName === 'tags') {
-          commit({ tagsBySheet: readTags(d) })
+        switch (docName) {
+          case 'sheets': {
+            const list   = readSheets(d)
+            const active = list.some((s) => s.id === S.current.activeSheetId) ? S.current.activeSheetId : list[0].id
+            commit({ sheets: list, activeSheetId: active })
+            break
+          }
+          case 'names':   commit({ namesBySheet: readNames(d) }); break
+          case 'tags':    commit({ tagsBySheet: readTags(d) }); break
+          case 'groups':  commit({ groups: readGroups(d) }); break
+          case 'bag':     commit({ bag: readBag(d) }); break
+          case 'profile': commit({ noClear: readNoClear(d) }); break
         }
       })
     })()
@@ -192,7 +215,7 @@ export function useFirestoreData(uid) {
     }
   }, [uid, commit])
 
-  // ─── Low-level per-sheet setters ───────────────────────────────────────────
+  // ─── Low-level setters ─────────────────────────────────────────────────────
   const putNames = useCallback((sid, list) => {
     commit({ namesBySheet: { ...S.current.namesBySheet, [sid]: list } })
     save('names', { [sid]: list })
@@ -203,6 +226,23 @@ export function useFirestoreData(uid) {
     save('tags', { [sid]: map })
   }, [commit, save])
 
+  const putGroups = useCallback((groups) => {
+    commit({ groups })
+    save('groups', { groups })
+  }, [commit, save])
+
+  const putBag = useCallback((bag) => {
+    commit({ bag })
+    save('bag', { bag })
+  }, [commit, save])
+
+  // Rename/remove a name inside every group
+  const mapGroupMembers = useCallback((fn) => {
+    const next = {}
+    for (const [id, g] of Object.entries(S.current.groups)) next[id] = { ...g, members: fn(g.members) }
+    putGroups(next)
+  }, [putGroups])
+
   // ═══════════════════════════════════════════════════════════════════════════
   // NAMES
   // ═══════════════════════════════════════════════════════════════════════════
@@ -212,7 +252,7 @@ export function useFirestoreData(uid) {
     const sid = S.current.activeSheetId
     const cur = S.current.namesBySheet[sid] ?? []
     if (cur.length >= MAX_NAMES_PER_SHEET) {
-      setError(`This sheet is full (${MAX_NAMES_PER_SHEET} names) — start a new sheet.`)
+      setWriteError(`This sheet is full (${MAX_NAMES_PER_SHEET} names) — start a new sheet.`)
       return 0
     }
     const next  = mergeNames(cur, rawList)
@@ -237,8 +277,9 @@ export function useFirestoreData(uid) {
       const { [oldName]: color, ...rest } = tags
       putTags(sid, { ...rest, [newName]: color })
     }
+    mapGroupMembers((m) => m.map((n) => (n === oldName ? newName : n)))
     return true
-  }, [putNames, putTags])
+  }, [putNames, putTags, mapGroupMembers])
 
   const removeName = useCallback((name) => {
     if (!readyRef.current) return
@@ -249,10 +290,13 @@ export function useFirestoreData(uid) {
       const { [name]: _drop, ...rest } = tags
       putTags(sid, rest)
     }
-  }, [putNames, putTags])
+    if (Object.values(S.current.groups).some((g) => g.members.includes(name))) {
+      mapGroupMembers((m) => m.filter((n) => n !== name))
+    }
+  }, [putNames, putTags, mapGroupMembers])
 
-  /** Clear the active sheet. Returns what was removed so the caller can offer Undo. */
-  const clearSheet = useCallback(() => {
+  /** Clear the active sheet's names + colours. Returns what was removed (for Undo). */
+  const clearAll = useCallback(() => {
     if (!readyRef.current) return null
     const sid     = S.current.activeSheetId
     const removed = { sheetId: sid, names: S.current.namesBySheet[sid] ?? [], tags: S.current.tagsBySheet[sid] ?? {} }
@@ -288,6 +332,68 @@ export function useFirestoreData(uid) {
   }, [putTags])
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // BAG
+  // ═══════════════════════════════════════════════════════════════════════════
+  const addToBag = useCallback((name) => {
+    if (!readyRef.current) return
+    const n = cleanName(name)
+    if (!n || S.current.bag.includes(n) || S.current.bag.length >= MAX_NAMES_PER_SHEET) return
+    putBag([...S.current.bag, n])
+  }, [putBag])
+
+  const removeFromBag = useCallback((name) => {
+    if (!readyRef.current) return
+    putBag(S.current.bag.filter((n) => n !== name))
+  }, [putBag])
+
+  const clearBag = useCallback(() => {
+    if (!readyRef.current) return
+    putBag([])
+  }, [putBag])
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GROUPS (global across sheets)
+  // ═══════════════════════════════════════════════════════════════════════════
+  const createGroup = useCallback((rawName) => {
+    if (!readyRef.current) return null
+    const name = cleanSheetName(rawName)
+    if (!name) return null
+    if (Object.keys(S.current.groups).length >= MAX_GROUPS) {
+      setWriteError(`You can have up to ${MAX_GROUPS} groups.`)
+      return null
+    }
+    const id = `g-${Date.now()}`
+    putGroups({ ...S.current.groups, [id]: { name, members: [] } })
+    return id
+  }, [putGroups])
+
+  const renameGroup = useCallback((id, rawName) => {
+    const g = S.current.groups[id]
+    const name = cleanSheetName(rawName)
+    if (!readyRef.current || !g || !name) return
+    putGroups({ ...S.current.groups, [id]: { ...g, name } })
+  }, [putGroups])
+
+  const deleteGroup = useCallback((id) => {
+    if (!readyRef.current || !S.current.groups[id]) return
+    const { [id]: _drop, ...rest } = S.current.groups
+    putGroups(rest)
+  }, [putGroups])
+
+  const addToGroup = useCallback((groupId, name) => {
+    const g = S.current.groups[groupId]
+    if (!readyRef.current || !g || typeof name !== 'string' || g.members.includes(name)) return
+    if (g.members.length >= MAX_NAMES_PER_SHEET) return
+    putGroups({ ...S.current.groups, [groupId]: { ...g, members: [...g.members, name] } })
+  }, [putGroups])
+
+  const removeFromGroup = useCallback((groupId, name) => {
+    const g = S.current.groups[groupId]
+    if (!readyRef.current || !g) return
+    putGroups({ ...S.current.groups, [groupId]: { ...g, members: g.members.filter((n) => n !== name) } })
+  }, [putGroups])
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // SHEETS
   // ═══════════════════════════════════════════════════════════════════════════
   const switchSheet = useCallback((id) => {
@@ -300,7 +406,7 @@ export function useFirestoreData(uid) {
     if (!readyRef.current) return null
     const cur = S.current.sheets
     if (cur.length >= MAX_SHEETS) {
-      setError(`You can have up to ${MAX_SHEETS} sheets.`)
+      setWriteError(`You can have up to ${MAX_SHEETS} sheets.`)
       return null
     }
     const id   = `sheet-${Date.now()}`
@@ -331,11 +437,11 @@ export function useFirestoreData(uid) {
     commit({ sheets: next, activeSheetId: active, namesBySheet: names, tagsBySheet: tags })
     saveActive(active)
     save('sheets', { sheets: next })
-    save('names',  { [id]: REMOVE() })
+    save('names',  { [id]: REMOVE() })   // no orphaned keys left in Firestore
     save('tags',   { [id]: REMOVE() })
   }, [commit, save])
 
-  /** Move a name (and its colour) between sheets. */
+  /** Move a name between sheets — carries its colour, drops it from groups. */
   const moveNameToSheet = useCallback((name, fromId, toId) => {
     if (!readyRef.current) return { ok: false, reason: 'not-ready' }
     if (fromId === toId) return { ok: false, reason: 'same-sheet' }
@@ -356,8 +462,33 @@ export function useFirestoreData(uid) {
       commit({ tagsBySheet: { ...S.current.tagsBySheet, [fromId]: rest, [toId]: toTags } })
       save('tags', { [fromId]: rest, [toId]: toTags })
     }
+    if (Object.values(S.current.groups).some((g) => g.members.includes(name))) {
+      mapGroupMembers((m) => m.filter((n) => n !== name))
+    }
     return { ok: true }
+  }, [commit, save, mapGroupMembers])
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PREFS
+  // ═══════════════════════════════════════════════════════════════════════════
+  const toggleNoClear = useCallback(() => {
+    if (!readyRef.current) return
+    const next = !S.current.noClear
+    commit({ noClear: next })
+    save('profile', { noclear: next })
   }, [commit, save])
+
+  /** Settings → Reset: every sheet's names + colours, plus bag and groups. */
+  const clearEverything = useCallback(() => {
+    if (!readyRef.current) return
+    const empty = Object.fromEntries(S.current.sheets.map((s) => [s.id, []]))
+    const emptyTags = Object.fromEntries(S.current.sheets.map((s) => [s.id, {}]))
+    commit({ namesBySheet: empty, tagsBySheet: emptyTags })
+    save('names', empty)
+    save('tags', emptyTags)
+    putBag([])
+    putGroups({})
+  }, [commit, save, putBag, putGroups])
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SNAPSHOT RESTORE — merges a parsed (already validated) snapshot
@@ -384,10 +515,10 @@ export function useFirestoreData(uid) {
       namesBySheet[id] = namesPatch[id] = merged
       totalNames += merged.length - before.length
 
-      const incoming = parsed.tagsBySheet[snapSheet.id] ?? {}
-      const present  = new Set(merged)
-      const kept     = Object.fromEntries(
-        Object.entries(incoming).map(([n, c]) => [cleanName(n), c]).filter(([n]) => present.has(n)),
+      const present = new Set(merged)
+      const kept    = Object.fromEntries(
+        Object.entries(parsed.tagsBySheet[snapSheet.id] ?? {})
+          .map(([n, c]) => [cleanName(n), c]).filter(([n]) => present.has(n)),
       )
       tagsBySheet[id] = tagsPatch[id] = { ...(tagsBySheet[id] ?? {}), ...kept }
       colors += Object.keys(kept).length
@@ -398,11 +529,31 @@ export function useFirestoreData(uid) {
     save('sheets', { sheets })
     save('names', namesPatch)
     save('tags', tagsPatch)
-    return { sheetsRestored, totalNames, colors }
-  }, [commit, save])
+
+    // Groups: merge by name
+    const groups = { ...S.current.groups }
+    let gi = 0
+    for (const g of Object.values(parsed.groups)) {
+      const existing = Object.entries(groups).find(([, eg]) => eg.name === g.name)
+      if (existing) {
+        const [eid, eg] = existing
+        groups[eid] = { ...eg, members: [...new Set([...eg.members, ...g.members])] }
+      } else if (Object.keys(groups).length < MAX_GROUPS) {
+        groups[`g-snap-${Date.now()}-${gi++}`] = { name: g.name, members: [...g.members] }
+      }
+    }
+    if (Object.keys(parsed.groups).length) putGroups(groups)
+
+    // Bag: merge
+    const bagSet = new Set(S.current.bag)
+    const bag = [...S.current.bag, ...parsed.bag.filter((n) => !bagSet.has(n))].slice(0, MAX_NAMES_PER_SHEET)
+    if (parsed.bag.length) putBag(bag)
+
+    return { sheetsRestored, totalNames, colors, groups: Object.keys(parsed.groups).length, bag: parsed.bag.length }
+  }, [commit, save, putGroups, putBag])
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // DELETE EVERYTHING (Settings)
+  // DELETE EVERYTHING (account deletion)
   // ═══════════════════════════════════════════════════════════════════════════
   const deleteAllData = useCallback(async () => {
     if (!uidRef.current) return false
@@ -418,16 +569,19 @@ export function useFirestoreData(uid) {
   }, [commit])
 
   // ─── Derived values for the active sheet ───────────────────────────────────
-  const { sheets, activeSheetId, namesBySheet, tagsBySheet } = state
+  const { sheets, activeSheetId, namesBySheet, tagsBySheet, groups, bag, noClear } = state
   const names = useMemo(() => sortNames(namesBySheet[activeSheetId] ?? []), [namesBySheet, activeSheetId])
   const tags  = tagsBySheet[activeSheetId] ?? EMPTY_TAGS
 
   return {
-    status, error, clearError,
+    status, writeError, clearWriteError,
     sheets, activeSheetId, namesBySheet, tagsBySheet,
     switchSheet, addSheet, renameSheet, deleteSheet, moveNameToSheet,
-    names, addName, addNames, editName, removeName, clearSheet, restoreCleared,
+    names, addName, addNames, editName, removeName, clearAll, restoreCleared, clearEverything,
     tags, setTag, clearTags,
+    bag, addToBag, removeFromBag, clearBag,
+    groups, createGroup, renameGroup, deleteGroup, addToGroup, removeFromGroup,
+    noClear, toggleNoClear,
     restoreFullSnapshot, deleteAllData,
   }
 }

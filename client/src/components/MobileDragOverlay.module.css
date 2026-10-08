@@ -42,7 +42,7 @@
 /* ─── Sheet-move drop indicator ─── */
 .sheetDropIndicator {
   position: fixed;
-  bottom: 60px;           /* just above the sheet bar */
+  bottom: 112px;          /* just above the sheet bar, which sits above the tab bar */
   left: 50%;
   transform: translateX(-50%);
   background: rgba(52, 211, 153, 0.94);
@@ -64,10 +64,68 @@
 }
 
 /* ─── Bag drop indicator ─── */
+.bagDropIndicator {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(99, 102, 241, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
 
 /* ─── "Drag onto a group" hint ─── */
+.groupsHint {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(245, 158, 11, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
 
 /* ─── "Add to GroupName" indicator ─── */
+.groupTargetIndicator {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(52, 211, 153, 0.92);
+  color: #fff;
+  font-family: var(--font-main);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(52, 211, 153, 0.4);
+  z-index: 9100;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: slideUp 0.2s ease forwards;
+}
+
+.groupTargetIndicator strong {
+  font-weight: 700;
+}
 
 @keyframes slideUp {
   from { opacity: 0; transform: translateX(-50%) translateY(10px); }

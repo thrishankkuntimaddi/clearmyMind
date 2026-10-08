@@ -5,7 +5,8 @@ import TagPicker from './TagPicker.jsx'
 import styles from './NameCell.module.css'
 
 export default function NameCell({
-  index, name, tag, searchMatch, isFirstMatch,
+  index, name, tag, dimmed, picked, highlighted, searchMatch, isFirstMatch,
+  inMemory, memoryIcon,
   onEdit, onRemove, onTagSet,
   onMobileLongPress,
 }) {
@@ -202,7 +203,14 @@ export default function NameCell({
 
   const tagColor = tag ? TAG_MAP[tag]?.hex : null
 
-  const tagStyle = tagColor ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` } : undefined
+  // Memory highlight: indigo left border (separate visual axis from tag background)
+  const memoryStyle = inMemory && !tagColor
+    ? { borderLeft: '3px solid rgba(139, 92, 246, 0.6)' }
+    : inMemory
+    ? { borderLeft: '3px solid rgba(139, 92, 246, 0.6)', background: `${tagColor}22` }
+    : tagColor
+    ? { background: `${tagColor}22`, borderLeft: `3px solid ${tagColor}` }
+    : {}
 
   // ── View mode ──────────────────────────────────────────────────────────────────
   return (
@@ -212,12 +220,16 @@ export default function NameCell({
         className={[
           styles.cell,
           removing    && styles.removing,
+          dimmed      && styles.dimmed,
+          picked      && styles.picked,
+          highlighted && styles.highlighted,
           searchMatch && styles.searchMatch,
+          inMemory    && styles.inMemory,
           dragging    && styles.dragging,
           copied      && styles.copiedFlash,
         ].filter(Boolean).join(' ')}
         data-search-first={isFirstMatch && searchMatch ? 'true' : undefined}
-        style={tagStyle}
+        style={memoryStyle}
         role="listitem"
         // draggable ONLY on desktop — on mobile it blocks touch→click synthesis
         draggable={!isMobile}
@@ -231,12 +243,13 @@ export default function NameCell({
       >
         <span className={styles.index}>{index}</span>
         <span className={styles.name} title={name}>{name}</span>
+        {inMemory && <span className={styles.memoryDot} title={`Saved in memory (${memoryIcon ?? '📚'})`} aria-label="In Memory">{memoryIcon ?? '📚'}</span>}
 
         {copied && <span className={styles.copiedBadge} aria-hidden="true">✓</span>}
 
         {/* Desktop: hover buttons */}
         {hovered && !showPicker && !copied && (
-          <span className={styles.dragHandle} title="Drag onto a sheet tab to move" aria-hidden="true">⠿</span>
+          <span className={styles.dragHandle} title="Drag to bag or group" aria-hidden="true">⠿</span>
         )}
         {hovered && !showPicker && !copied && (
           <div className={styles.btnGroup} onClick={e => e.stopPropagation()}>
